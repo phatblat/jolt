@@ -78,7 +78,7 @@ just run --repo launchdarkly/android-client-sdk --limit 5
 ## Development
 
 ```bash
-# Install dependencies
+# Install dependencies (including dev tools)
 just install
 
 # Build (install in editable mode)
@@ -86,6 +86,15 @@ just build
 
 # Run tests
 just test
+
+# Lint code
+just lint
+
+# Lint and auto-fix issues
+just lint-fix
+
+# Format code
+just fmt
 
 # Clean build artifacts
 just clean

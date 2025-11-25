@@ -12,10 +12,8 @@ Environment:
     GITHUB_TOKEN - GitHub personal access token with repo scope
 """
 
-import os
 import sys
 from datetime import datetime, timezone
-from typing import Optional
 
 import click
 import requests
@@ -49,7 +47,7 @@ class GitHubClient:
         self,
         owner: str,
         repo: str,
-        workflow_name: Optional[str] = None,
+        workflow_name: str | None = None,
         status: str = "failure",
         per_page: int = 20,
     ) -> list[dict]:
@@ -140,13 +138,13 @@ def display_failures(
         )
 
         run_info = Text()
-        run_info.append(f"Branch: ", style="dim")
+        run_info.append("Branch: ", style="dim")
         run_info.append(f"{run['head_branch']}\n", style="cyan")
-        run_info.append(f"Commit: ", style="dim")
+        run_info.append("Commit: ", style="dim")
         run_info.append(f"{run['head_sha'][:7]}\n", style="yellow")
-        run_info.append(f"Started: ", style="dim")
+        run_info.append("Started: ", style="dim")
         run_info.append(f"{format_time_ago(run['created_at'])}\n", style="white")
-        run_info.append(f"URL: ", style="dim")
+        run_info.append("URL: ", style="dim")
         run_info.append(f"{run['html_url']}", style="blue underline")
 
         console.print(Panel(run_info, title=run_title, border_style="red"))
@@ -204,7 +202,7 @@ def display_failures(
     envvar="GITHUB_TOKEN",
     help="GitHub token (or set GITHUB_TOKEN env var)",
 )
-def main(repo: str, workflow: Optional[str], pr: Optional[int], limit: int, token: str):
+def main(repo: str, workflow: str | None, pr: int | None, limit: int, token: str):
     """
     View recent GitHub Actions job failures.
 

@@ -34,10 +34,14 @@ clean:
   find . -type d -name __pycache__ -exec rm -rf {} +
   find . -type f -name "*.pyc" -delete
 
-# Format code (when formatter is added)
+# Format code with ruff
 fmt:
-  @echo "No formatter configured yet"
+  uv run ruff format .
 
-# Lint code (when linter is added)
+# Lint code with ruff
 lint:
-  @echo "No linter configured yet"
+  uv run ruff check .
+
+# Lint and fix auto-fixable issues
+lint-fix:
+  uv run ruff check --fix .
