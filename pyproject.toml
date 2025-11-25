@@ -1,0 +1,17 @@
+[project]
+name = "ci-failures"
+version = "0.1.0"
+description = "CLI tool to view GitHub Actions job failures"
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.28.0",
+    "click>=8.0.0",
+    "rich>=13.0.0",
+]
+
+[project.scripts]
+ci-failures = "ci_failures:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
