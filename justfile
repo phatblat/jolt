@@ -21,7 +21,10 @@ alias up := upgrade
 
 # List available recipes
 _default:
-  @just --list
+    @just --list
+
+list:
+    mise ls --local
 
 # Install dependencies using uv
 install:
@@ -47,22 +50,23 @@ lint-fix:
 
 # Build the project (install in editable mode)
 build:
-  uv pip install -e .
+    uv pip install -e .
 
 # Run tests (placeholder for when tests are added)
 test:
-  @echo "No tests configured yet"
-  @echo "Run 'just test-run' to test the CLI with a real repo"
+    @echo "No tests configured yet"
+    @echo "Run 'just test-run' to test the CLI with a real repo"
 
 # Test the CLI with a sample command (requires GITHUB_TOKEN)
 test-run:
-  @echo "Testing ci-failures CLI..."
-  uv run python ci_failures.py --help
+    @echo "Testing ci-failures CLI..."
+    uv run python ci_failures.py --help
 
 # Run the ci-failures CLI with arguments
+
 # Usage: just run --repo owner/repo [--workflow NAME] [--pr NUMBER]
 run *ARGS:
-  uv run python ci_failures.py {{ARGS}}
+    uv run python ci_failures.py {{ ARGS }}
 
 # Clean build artifacts and cache
 clean:
