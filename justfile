@@ -1,5 +1,23 @@
-# Justfile for ci-failures project
-# https://github.com/casey/just
+# Justfile for jolt
+#
+# settings
+
+set unstable := true
+
+#
+# aliases
+#
+
+alias fmt := format
+alias ls := list
+
+# alias od := outdated
+
+alias up := upgrade
+
+#
+# recipes
+#
 
 # List available recipes
 _default:
@@ -7,7 +25,25 @@ _default:
 
 # Install dependencies using uv
 install:
-  uv sync
+    mise install
+    uv sync
+
+upgrade:
+    mise upgrade --bump
+
+lint:
+    mise fmt --check
+    just --fmt --check
+    uv run ruff check .
+
+format:
+    mise fmt
+    just --fmt
+    uv run ruff format .
+
+# Lint and fix auto-fixable issues
+lint-fix:
+    uv run ruff check --fix .
 
 # Build the project (install in editable mode)
 build:
@@ -30,18 +66,6 @@ run *ARGS:
 
 # Clean build artifacts and cache
 clean:
-  rm -rf .venv __pycache__ *.egg-info build dist .pytest_cache
-  find . -type d -name __pycache__ -exec rm -rf {} +
-  find . -type f -name "*.pyc" -delete
-
-# Format code with ruff
-fmt:
-  uv run ruff format .
-
-# Lint code with ruff
-lint:
-  uv run ruff check .
-
-# Lint and fix auto-fixable issues
-lint-fix:
-  uv run ruff check --fix .
+    rm -rf .venv __pycache__ *.egg-info build dist .pytest_cache
+    find . -type d -name __pycache__ -exec rm -rf {} +
+    find . -type f -name "*.pyc" -delete
