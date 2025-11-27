@@ -1167,28 +1167,22 @@ impl App {
 
         match current_view {
             ViewLevel::Owners => {
-                // Load cached owners first for instant display
-                let has_cache = if !self.workflows.owners.data.is_loaded() {
-                    if let Some(path) = cache::owners_list_path() {
-                        if let Ok(Some(cached)) =
-                            cache::read_cached::<Vec<crate::github::Owner>>(&path)
-                        {
+                if self.workflows.owners.data.is_loaded() {
+                    return;
+                }
+                // Try to load from cache first
+                if let Some(path) = cache::owners_list_path() {
+                    if let Ok(Some(cached)) = cache::read_cached::<Vec<crate::github::Owner>>(&path)
+                    {
+                        if cached.is_valid(cache::DEFAULT_TTL) {
                             let count = cached.data.len() as u64;
                             self.workflows.owners.set_loaded(cached.data, count);
-                            true
-                        } else {
-                            self.workflows.owners.set_loading();
-                            false
+                            return;
                         }
-                    } else {
-                        self.workflows.owners.set_loading();
-                        false
                     }
-                } else {
-                    true
-                };
-
-                // Always fetch fresh data and update cache
+                }
+                // No valid cache, fetch from API
+                self.workflows.owners.set_loading();
                 let result = Self::fetch_owners(self.github_client.as_mut().unwrap()).await;
                 match result {
                     Ok((owners, count)) => {
@@ -1198,37 +1192,30 @@ impl App {
                         self.workflows.owners.set_loaded(owners, count);
                     }
                     Err(e) => {
-                        if !has_cache {
-                            self.workflows.owners.set_error(e.to_string());
-                        }
+                        self.workflows.owners.set_error(e.to_string());
                         self.log_error(format!("Failed to load owners: {}", e));
                     }
                 }
             }
             ViewLevel::Repositories { ref owner } => {
+                if self.workflows.repositories.data.is_loaded() {
+                    return;
+                }
                 let owner = owner.clone();
-                // Load cached repos first for instant display
-                let has_cache = if !self.workflows.repositories.data.is_loaded() {
-                    if let Some(path) = cache::repos_list_path(&owner) {
-                        if let Ok(Some(cached)) =
-                            cache::read_cached::<Vec<crate::github::Repository>>(&path)
-                        {
+                // Try to load from cache first
+                if let Some(path) = cache::repos_list_path(&owner) {
+                    if let Ok(Some(cached)) =
+                        cache::read_cached::<Vec<crate::github::Repository>>(&path)
+                    {
+                        if cached.is_valid(cache::DEFAULT_TTL) {
                             let count = cached.data.len() as u64;
                             self.workflows.repositories.set_loaded(cached.data, count);
-                            true
-                        } else {
-                            self.workflows.repositories.set_loading();
-                            false
+                            return;
                         }
-                    } else {
-                        self.workflows.repositories.set_loading();
-                        false
                     }
-                } else {
-                    true
-                };
-
-                // Always fetch fresh data and update cache
+                }
+                // No valid cache, fetch from API
+                self.workflows.repositories.set_loading();
                 let result =
                     Self::fetch_repositories(self.github_client.as_mut().unwrap(), &owner).await;
                 match result {
@@ -1239,9 +1226,7 @@ impl App {
                         self.workflows.repositories.set_loaded(repos, count);
                     }
                     Err(e) => {
-                        if !has_cache {
-                            self.workflows.repositories.set_error(e.to_string());
-                        }
+                        self.workflows.repositories.set_error(e.to_string());
                         self.log_error(format!("Failed to load repositories: {}", e));
                     }
                 }
@@ -1250,30 +1235,25 @@ impl App {
                 ref owner,
                 ref repo,
             } => {
+                if self.workflows.workflows.data.is_loaded() {
+                    return;
+                }
                 let owner = owner.clone();
                 let repo = repo.clone();
-                // Load cached workflows first for instant display
-                let has_cache = if !self.workflows.workflows.data.is_loaded() {
-                    if let Some(path) = cache::workflows_list_path(&owner, &repo) {
-                        if let Ok(Some(cached)) =
-                            cache::read_cached::<Vec<crate::github::Workflow>>(&path)
-                        {
+                // Try to load from cache first
+                if let Some(path) = cache::workflows_list_path(&owner, &repo) {
+                    if let Ok(Some(cached)) =
+                        cache::read_cached::<Vec<crate::github::Workflow>>(&path)
+                    {
+                        if cached.is_valid(cache::DEFAULT_TTL) {
                             let count = cached.data.len() as u64;
                             self.workflows.workflows.set_loaded(cached.data, count);
-                            true
-                        } else {
-                            self.workflows.workflows.set_loading();
-                            false
+                            return;
                         }
-                    } else {
-                        self.workflows.workflows.set_loading();
-                        false
                     }
-                } else {
-                    true
-                };
-
-                // Always fetch fresh data and update cache
+                }
+                // No valid cache, fetch from API
+                self.workflows.workflows.set_loading();
                 let result = self
                     .github_client
                     .as_mut()
@@ -1288,9 +1268,7 @@ impl App {
                         self.workflows.workflows.set_loaded(workflows, count);
                     }
                     Err(e) => {
-                        if !has_cache {
-                            self.workflows.workflows.set_error(e.to_string());
-                        }
+                        self.workflows.workflows.set_error(e.to_string());
                         self.log_error(format!("Failed to load workflows: {}", e));
                     }
                 }
@@ -1301,30 +1279,25 @@ impl App {
                 workflow_id,
                 ..
             } => {
+                if self.workflows.runs.data.is_loaded() {
+                    return;
+                }
                 let owner = owner.clone();
                 let repo = repo.clone();
-                // Load cached runs first for instant display
-                let has_cache = if !self.workflows.runs.data.is_loaded() {
-                    if let Some(path) = cache::runs_list_path(&owner, &repo, workflow_id) {
-                        if let Ok(Some(cached)) =
-                            cache::read_cached::<Vec<crate::github::WorkflowRun>>(&path)
-                        {
+                // Try to load from cache first
+                if let Some(path) = cache::runs_list_path(&owner, &repo, workflow_id) {
+                    if let Ok(Some(cached)) =
+                        cache::read_cached::<Vec<crate::github::WorkflowRun>>(&path)
+                    {
+                        if cached.is_valid(cache::DEFAULT_TTL) {
                             let count = cached.data.len() as u64;
                             self.workflows.runs.set_loaded(cached.data, count);
-                            true
-                        } else {
-                            self.workflows.runs.set_loading();
-                            false
+                            return;
                         }
-                    } else {
-                        self.workflows.runs.set_loading();
-                        false
                     }
-                } else {
-                    true
-                };
-
-                // Always fetch fresh data and update cache
+                }
+                // No valid cache, fetch from API
+                self.workflows.runs.set_loading();
                 let result = self
                     .github_client
                     .as_mut()
@@ -1339,9 +1312,7 @@ impl App {
                         self.workflows.runs.set_loaded(runs, count);
                     }
                     Err(e) => {
-                        if !has_cache {
-                            self.workflows.runs.set_error(e.to_string());
-                        }
+                        self.workflows.runs.set_error(e.to_string());
                         self.log_error(format!("Failed to load runs: {}", e));
                     }
                 }
@@ -1353,30 +1324,23 @@ impl App {
                 run_id,
                 ..
             } => {
+                if self.workflows.jobs.data.is_loaded() {
+                    return;
+                }
                 let owner = owner.clone();
                 let repo = repo.clone();
-                // Load cached jobs first for instant display
-                let has_cache = if !self.workflows.jobs.data.is_loaded() {
-                    if let Some(path) = cache::jobs_list_path(&owner, &repo, workflow_id, run_id) {
-                        if let Ok(Some(cached)) =
-                            cache::read_cached::<Vec<crate::github::Job>>(&path)
-                        {
+                // Try to load from cache first
+                if let Some(path) = cache::jobs_list_path(&owner, &repo, workflow_id, run_id) {
+                    if let Ok(Some(cached)) = cache::read_cached::<Vec<crate::github::Job>>(&path) {
+                        if cached.is_valid(cache::DEFAULT_TTL) {
                             let count = cached.data.len() as u64;
                             self.workflows.jobs.set_loaded(cached.data, count);
-                            true
-                        } else {
-                            self.workflows.jobs.set_loading();
-                            false
+                            return;
                         }
-                    } else {
-                        self.workflows.jobs.set_loading();
-                        false
                     }
-                } else {
-                    true
-                };
-
-                // Always fetch fresh data and update cache
+                }
+                // No valid cache, fetch from API
+                self.workflows.jobs.set_loading();
                 let result = self
                     .github_client
                     .as_mut()
@@ -1393,9 +1357,7 @@ impl App {
                         self.workflows.jobs.set_loaded(jobs, count);
                     }
                     Err(e) => {
-                        if !has_cache {
-                            self.workflows.jobs.set_error(e.to_string());
-                        }
+                        self.workflows.jobs.set_error(e.to_string());
                         self.log_error(format!("Failed to load jobs: {}", e));
                     }
                 }
@@ -1408,29 +1370,21 @@ impl App {
                 job_id,
                 ..
             } => {
+                if self.workflows.log_content.is_loaded() {
+                    return;
+                }
                 let owner = owner.clone();
                 let repo = repo.clone();
-                // Load cached logs first for instant display
-                let has_cache = if !self.workflows.log_content.is_loaded() {
-                    if let Some(path) =
-                        cache::job_log_path(&owner, &repo, workflow_id, run_id, job_id)
-                    {
-                        if let Ok(Some(logs)) = cache::read_text(&path) {
-                            self.workflows.log_content = LoadingState::Loaded(logs);
-                            true
-                        } else {
-                            self.workflows.log_content = LoadingState::Loading;
-                            false
-                        }
-                    } else {
-                        self.workflows.log_content = LoadingState::Loading;
-                        false
+                // Try to load from cache first (logs are immutable once job completes)
+                if let Some(path) = cache::job_log_path(&owner, &repo, workflow_id, run_id, job_id)
+                {
+                    if let Ok(Some(logs)) = cache::read_text(&path) {
+                        self.workflows.log_content = LoadingState::Loaded(logs);
+                        return;
                     }
-                } else {
-                    true
-                };
-
-                // Always fetch fresh data and update cache
+                }
+                // No cache, fetch from API
+                self.workflows.log_content = LoadingState::Loading;
                 let result = self
                     .github_client
                     .as_mut()
@@ -1447,9 +1401,7 @@ impl App {
                         self.workflows.log_content = LoadingState::Loaded(logs);
                     }
                     Err(e) => {
-                        if !has_cache {
-                            self.workflows.log_content = LoadingState::Error(e.to_string());
-                        }
+                        self.workflows.log_content = LoadingState::Error(e.to_string());
                         self.log_error(format!("Failed to load logs: {}", e));
                     }
                 }
@@ -1504,28 +1456,23 @@ impl App {
 
         match current_view {
             RunnersViewLevel::Repositories => {
-                // Load cached repos first for instant display
-                let has_cache = if !self.runners.repositories.data.is_loaded() {
-                    if let Some(path) = cache::runners_repos_path() {
-                        if let Ok(Some(cached)) =
-                            cache::read_cached::<Vec<crate::github::Repository>>(&path)
-                        {
+                if self.runners.repositories.data.is_loaded() {
+                    return;
+                }
+                // Try to load from cache first
+                if let Some(path) = cache::runners_repos_path() {
+                    if let Ok(Some(cached)) =
+                        cache::read_cached::<Vec<crate::github::Repository>>(&path)
+                    {
+                        if cached.is_valid(cache::DEFAULT_TTL) {
                             let count = cached.data.len() as u64;
                             self.runners.repositories.set_loaded(cached.data, count);
-                            true
-                        } else {
-                            self.runners.repositories.set_loading();
-                            false
+                            return;
                         }
-                    } else {
-                        self.runners.repositories.set_loading();
-                        false
                     }
-                } else {
-                    true
-                };
-
-                // Always fetch fresh data and update cache
+                }
+                // No valid cache, fetch from API
+                self.runners.repositories.set_loading();
                 let result = self
                     .github_client
                     .as_mut()
@@ -1534,7 +1481,6 @@ impl App {
                     .await;
                 match result {
                     Ok(repos) => {
-                        // Cache the fresh data
                         if let Some(path) = cache::runners_repos_path() {
                             let _ = cache::write_cached(&path, &repos, false);
                         }
@@ -1542,10 +1488,7 @@ impl App {
                         self.runners.repositories.set_loaded(repos, count);
                     }
                     Err(e) => {
-                        // Only show error if we don't have cached data
-                        if !has_cache {
-                            self.runners.repositories.set_error(e.to_string());
-                        }
+                        self.runners.repositories.set_error(e.to_string());
                         self.log_error(format!("Failed to load repositories: {}", e));
                     }
                 }
