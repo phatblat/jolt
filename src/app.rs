@@ -829,70 +829,127 @@ impl App {
     /// Handle Enter in Workflows tab.
     async fn handle_workflows_enter(&mut self) {
         // Get the next navigation level based on current selection
-        let next_level =
-            match self.workflows.nav.current().clone() {
-                ViewLevel::Owners => {
-                    self.workflows
-                        .owners
-                        .selected_item()
-                        .map(|owner| ViewLevel::Repositories {
-                            owner: owner.login.clone(),
-                        })
-                }
-                ViewLevel::Repositories { owner } => self
-                    .workflows
-                    .repositories
-                    .selected_item()
-                    .map(|repo| ViewLevel::Workflows {
-                        owner,
-                        repo: repo.name.clone(),
-                    }),
-                ViewLevel::Workflows { owner, repo } => self
-                    .workflows
-                    .workflows
-                    .selected_item()
-                    .map(|workflow| ViewLevel::Runs {
-                        owner,
-                        repo,
-                        workflow_id: workflow.id,
-                        workflow_name: workflow.name.clone(),
-                    }),
-                ViewLevel::Runs {
+        // Note: For views with favorites, we must sort to match the displayed order
+        let next_level = match self.workflows.nav.current().clone() {
+            ViewLevel::Owners => {
+                let index = match self.workflows.owners.selected() {
+                    Some(i) => i,
+                    None => return,
+                };
+                let data = match self.workflows.owners.data.data() {
+                    Some(d) => d,
+                    None => return,
+                };
+                let mut sorted: Vec<_> = data.items.iter().collect();
+                sorted.sort_by(|a, b| {
+                    let a_fav = self.favorite_owners.contains(&a.login);
+                    let b_fav = self.favorite_owners.contains(&b.login);
+                    match (a_fav, b_fav) {
+                        (true, false) => std::cmp::Ordering::Less,
+                        (false, true) => std::cmp::Ordering::Greater,
+                        _ => a.login.cmp(&b.login),
+                    }
+                });
+                sorted.get(index).map(|owner| ViewLevel::Repositories {
+                    owner: owner.login.clone(),
+                })
+            }
+            ViewLevel::Repositories { ref owner } => {
+                let index = match self.workflows.repositories.selected() {
+                    Some(i) => i,
+                    None => return,
+                };
+                let data = match self.workflows.repositories.data.data() {
+                    Some(d) => d,
+                    None => return,
+                };
+                let mut sorted: Vec<_> = data.items.iter().collect();
+                let owner = owner.clone();
+                sorted.sort_by(|a, b| {
+                    let a_key = format!("{}/{}", owner, a.name);
+                    let b_key = format!("{}/{}", owner, b.name);
+                    let a_fav = self.favorite_repos.contains(&a_key);
+                    let b_fav = self.favorite_repos.contains(&b_key);
+                    match (a_fav, b_fav) {
+                        (true, false) => std::cmp::Ordering::Less,
+                        (false, true) => std::cmp::Ordering::Greater,
+                        _ => a.name.cmp(&b.name),
+                    }
+                });
+                sorted.get(index).map(|repo| ViewLevel::Workflows {
+                    owner,
+                    repo: repo.name.clone(),
+                })
+            }
+            ViewLevel::Workflows {
+                ref owner,
+                ref repo,
+            } => {
+                let index = match self.workflows.workflows.selected() {
+                    Some(i) => i,
+                    None => return,
+                };
+                let data = match self.workflows.workflows.data.data() {
+                    Some(d) => d,
+                    None => return,
+                };
+                let mut sorted: Vec<_> = data.items.iter().collect();
+                let owner = owner.clone();
+                let repo = repo.clone();
+                sorted.sort_by(|a, b| {
+                    let a_key = format!("{}/{}/{}", owner, repo, a.id);
+                    let b_key = format!("{}/{}/{}", owner, repo, b.id);
+                    let a_fav = self.favorite_workflows.contains(&a_key);
+                    let b_fav = self.favorite_workflows.contains(&b_key);
+                    match (a_fav, b_fav) {
+                        (true, false) => std::cmp::Ordering::Less,
+                        (false, true) => std::cmp::Ordering::Greater,
+                        _ => a.name.cmp(&b.name),
+                    }
+                });
+                sorted.get(index).map(|workflow| ViewLevel::Runs {
+                    owner,
+                    repo,
+                    workflow_id: workflow.id,
+                    workflow_name: workflow.name.clone(),
+                })
+            }
+            ViewLevel::Runs {
+                owner,
+                repo,
+                workflow_id,
+                ..
+            } => self
+                .workflows
+                .runs
+                .selected_item()
+                .map(|run| ViewLevel::Jobs {
                     owner,
                     repo,
                     workflow_id,
-                    ..
-                } => self
-                    .workflows
-                    .runs
-                    .selected_item()
-                    .map(|run| ViewLevel::Jobs {
-                        owner,
-                        repo,
-                        workflow_id,
-                        run_id: run.id,
-                        run_number: run.run_number,
-                    }),
-                ViewLevel::Jobs {
+                    run_id: run.id,
+                    run_number: run.run_number,
+                }),
+            ViewLevel::Jobs {
+                owner,
+                repo,
+                workflow_id,
+                run_id,
+                ..
+            } => self
+                .workflows
+                .jobs
+                .selected_item()
+                .map(|job| ViewLevel::Logs {
                     owner,
                     repo,
                     workflow_id,
                     run_id,
-                    ..
-                } => self
-                    .workflows
-                    .jobs
-                    .selected_item()
-                    .map(|job| ViewLevel::Logs {
-                        owner,
-                        repo,
-                        workflow_id,
-                        run_id,
-                        job_id: job.id,
-                        job_name: job.name.clone(),
-                    }),
-                ViewLevel::Logs { .. } => None, // Can't drill down further
-            };
+                    job_id: job.id,
+                    job_name: job.name.clone(),
+                }),
+            ViewLevel::Logs { .. } => None, // Can't drill down further
+        };
 
         if let Some(level) = next_level {
             self.workflows.nav.push(level);
@@ -902,27 +959,68 @@ impl App {
 
     /// Handle Enter in Runners tab.
     async fn handle_runners_enter(&mut self) {
-        let next_level =
-            match self.runners.nav.current().clone() {
-                RunnersViewLevel::Repositories => {
-                    self.runners.repositories.selected_item().map(|repo| {
-                        RunnersViewLevel::Runners {
-                            owner: repo.owner.login.clone(),
-                            repo: repo.name.clone(),
-                        }
-                    })
-                }
-                RunnersViewLevel::Runners { owner, repo } => self
-                    .runners
-                    .runners
-                    .selected_item()
-                    .map(|runner| RunnersViewLevel::Runs {
-                        owner,
-                        repo,
-                        runner_name: Some(runner.name.clone()),
-                    }),
-                RunnersViewLevel::Runs { owner, repo, .. } => self
-                    .runners
+        // Note: For views with favorites, we must sort to match the displayed order
+        let next_level = match self.runners.nav.current().clone() {
+            RunnersViewLevel::Repositories => {
+                let index = match self.runners.repositories.selected() {
+                    Some(i) => i,
+                    None => return,
+                };
+                let data = match self.runners.repositories.data.data() {
+                    Some(d) => d,
+                    None => return,
+                };
+                let mut sorted: Vec<_> = data.items.iter().collect();
+                sorted.sort_by(|a, b| {
+                    let a_key = format!("{}/{}", a.owner.login, a.name);
+                    let b_key = format!("{}/{}", b.owner.login, b.name);
+                    let a_fav = self.favorite_repos.contains(&a_key);
+                    let b_fav = self.favorite_repos.contains(&b_key);
+                    match (a_fav, b_fav) {
+                        (true, false) => std::cmp::Ordering::Less,
+                        (false, true) => std::cmp::Ordering::Greater,
+                        _ => a_key.cmp(&b_key),
+                    }
+                });
+                sorted.get(index).map(|repo| RunnersViewLevel::Runners {
+                    owner: repo.owner.login.clone(),
+                    repo: repo.name.clone(),
+                })
+            }
+            RunnersViewLevel::Runners {
+                ref owner,
+                ref repo,
+            } => {
+                let index = match self.runners.runners.selected() {
+                    Some(i) => i,
+                    None => return,
+                };
+                let data = match self.runners.runners.data.data() {
+                    Some(d) => d,
+                    None => return,
+                };
+                let mut sorted: Vec<_> = data.items.iter().collect();
+                let owner = owner.clone();
+                let repo = repo.clone();
+                sorted.sort_by(|a, b| {
+                    let a_key = format!("{}/{}/{}", owner, repo, a.name);
+                    let b_key = format!("{}/{}/{}", owner, repo, b.name);
+                    let a_fav = self.favorite_runners.contains(&a_key);
+                    let b_fav = self.favorite_runners.contains(&b_key);
+                    match (a_fav, b_fav) {
+                        (true, false) => std::cmp::Ordering::Less,
+                        (false, true) => std::cmp::Ordering::Greater,
+                        _ => a.name.cmp(&b.name),
+                    }
+                });
+                sorted.get(index).map(|runner| RunnersViewLevel::Runs {
+                    owner,
+                    repo,
+                    runner_name: Some(runner.name.clone()),
+                })
+            }
+            RunnersViewLevel::Runs { owner, repo, .. } => {
+                self.runners
                     .runs
                     .selected_item()
                     .map(|run| RunnersViewLevel::Jobs {
@@ -930,25 +1028,26 @@ impl App {
                         repo,
                         run_id: run.id,
                         run_number: run.run_number,
-                    }),
-                RunnersViewLevel::Jobs {
+                    })
+            }
+            RunnersViewLevel::Jobs {
+                owner,
+                repo,
+                run_id,
+                ..
+            } => self
+                .runners
+                .jobs
+                .selected_item()
+                .map(|job| RunnersViewLevel::Logs {
                     owner,
                     repo,
                     run_id,
-                    ..
-                } => self
-                    .runners
-                    .jobs
-                    .selected_item()
-                    .map(|job| RunnersViewLevel::Logs {
-                        owner,
-                        repo,
-                        run_id,
-                        job_id: job.id,
-                        job_name: job.name.clone(),
-                    }),
-                RunnersViewLevel::Logs { .. } => None,
-            };
+                    job_id: job.id,
+                    job_name: job.name.clone(),
+                }),
+            RunnersViewLevel::Logs { .. } => None,
+        };
 
         if let Some(level) = next_level {
             self.runners.nav.push(level);
