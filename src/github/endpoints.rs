@@ -208,15 +208,25 @@ impl GitHubClient {
     }
 
     /// Get logs for a job (returns raw text).
+    /// Returns a user-friendly error if logs are not available.
     pub async fn get_job_logs(&mut self, owner: &str, repo: &str, job_id: u64) -> Result<String> {
-        let response = self
+        let result = self
             .get(&format!(
                 "/repos/{}/{}/actions/jobs/{}/logs",
                 owner, repo, job_id
             ))
-            .await?;
-        let logs = response.text().await.map_err(JoltError::Api)?;
-        Ok(logs)
+            .await;
+
+        match result {
+            Ok(response) => {
+                let logs = response.text().await.map_err(JoltError::Api)?;
+                Ok(logs)
+            }
+            Err(JoltError::NotFound(_)) => Err(JoltError::Other(
+                "Logs not available (may have expired or job is still running)".to_string(),
+            )),
+            Err(e) => Err(e),
+        }
     }
 
     /// Get runners for a repository (requires admin access).
