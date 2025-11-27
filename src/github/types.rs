@@ -6,10 +6,12 @@ use serde::{Deserialize, Serialize};
 
 /// Owner type discriminator (user or organization).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
 pub enum OwnerType {
     User,
     Organization,
+    Bot,
+    #[serde(other)]
+    Unknown,
 }
 
 /// GitHub user or organization.
@@ -55,6 +57,8 @@ pub enum WorkflowState {
     DisabledFork,
     DisabledInactivity,
     DisabledManually,
+    #[serde(other)]
+    Unknown,
 }
 
 /// GitHub Actions workflow run.
@@ -86,6 +90,8 @@ pub enum RunStatus {
     Waiting,
     Requested,
     Pending,
+    #[serde(other)]
+    Unknown,
 }
 
 /// Workflow run conclusion.
@@ -101,6 +107,8 @@ pub enum RunConclusion {
     Neutral,
     Stale,
     StartupFailure,
+    #[serde(other)]
+    Unknown,
 }
 
 /// Reference to a pull request in a workflow run.
@@ -162,6 +170,8 @@ pub struct Runner {
 pub enum RunnerStatus {
     Online,
     Offline,
+    #[serde(other)]
+    Unknown,
 }
 
 /// Runner label.

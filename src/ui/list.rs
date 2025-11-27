@@ -33,6 +33,7 @@ fn status_color(status: &RunStatus) -> Color {
         RunStatus::InProgress => Color::Yellow,
         RunStatus::Queued | RunStatus::Waiting | RunStatus::Pending => Color::Blue,
         RunStatus::Requested => Color::Cyan,
+        RunStatus::Unknown => Color::Gray,
     }
 }
 
@@ -48,6 +49,7 @@ fn conclusion_color(conclusion: &Option<RunConclusion>) -> Color {
         Some(RunConclusion::Neutral) => Color::White,
         Some(RunConclusion::Stale) => Color::Gray,
         Some(RunConclusion::StartupFailure) => Color::Red,
+        Some(RunConclusion::Unknown) => Color::Gray,
         None => Color::Yellow, // In progress
     }
 }
@@ -93,6 +95,8 @@ pub fn render_owners_list(frame: &mut Frame, list: &mut SelectableList<Owner>, a
                         let type_indicator = match owner.owner_type {
                             OwnerType::User => "👤",
                             OwnerType::Organization => "🏢",
+                            OwnerType::Bot => "🤖",
+                            OwnerType::Unknown => "❓",
                         };
                         ListItem::new(format!("{} {}", type_indicator, owner.login))
                     })
