@@ -501,7 +501,7 @@ fn draw_help_overlay(frame: &mut Frame) {
             Span::raw("Go back / close help"),
         ]),
         Line::from(vec![
-            Span::styled("  Tab           ", Style::default().fg(Color::Cyan)),
+            Span::styled("  Tab/1/2/3     ", Style::default().fg(Color::Cyan)),
             Span::raw("Switch tabs"),
         ]),
         Line::from(vec![

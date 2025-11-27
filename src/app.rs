@@ -274,6 +274,22 @@ impl App {
                             self.clear_console_badge_if_viewing();
                             self.on_tab_change().await;
                         }
+                        // Direct tab selection
+                        KeyCode::Char('1') => {
+                            self.active_tab = Tab::Runners;
+                            self.clear_console_badge_if_viewing();
+                            self.on_tab_change().await;
+                        }
+                        KeyCode::Char('2') => {
+                            self.active_tab = Tab::Workflows;
+                            self.clear_console_badge_if_viewing();
+                            self.on_tab_change().await;
+                        }
+                        KeyCode::Char('3') => {
+                            self.active_tab = Tab::Console;
+                            self.clear_console_badge_if_viewing();
+                            self.on_tab_change().await;
+                        }
                         // Arrow keys
                         KeyCode::Up => self.handle_up(),
                         KeyCode::Down => self.handle_down(),
