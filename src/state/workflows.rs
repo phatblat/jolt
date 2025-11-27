@@ -220,10 +220,6 @@ pub struct WorkflowsTabState {
     pub log_scroll_x: u16,
     /// Vertical scroll offset for log viewer.
     pub log_scroll_y: u16,
-    /// Search query (for filtering lists or searching logs).
-    pub search_query: Option<String>,
-    /// Whether search input is active.
-    pub search_active: bool,
 }
 
 impl Default for WorkflowsTabState {
@@ -238,8 +234,6 @@ impl Default for WorkflowsTabState {
             log_content: LoadingState::Idle,
             log_scroll_x: 0,
             log_scroll_y: 0,
-            search_query: None,
-            search_active: false,
         }
     }
 }

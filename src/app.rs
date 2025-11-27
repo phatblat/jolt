@@ -4,7 +4,7 @@
 use std::io;
 use std::time::Duration;
 
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::prelude::*;
 use ratatui::widgets::ListState;
 use serde::{Deserialize, Serialize};
@@ -138,6 +138,14 @@ pub struct App {
     pub should_quit: bool,
     /// Whether to show the help overlay.
     pub show_help: bool,
+    /// Whether search input is active.
+    pub search_active: bool,
+    /// Current search query.
+    pub search_query: String,
+    /// Line numbers containing search matches.
+    pub search_matches: Vec<usize>,
+    /// Index of current match in search_matches.
+    pub search_match_index: usize,
     /// GitHub API client (None if no token).
     pub github_client: Option<GitHubClient>,
     /// Workflows tab state.
@@ -168,6 +176,10 @@ impl App {
             console_list_state: ListState::default(),
             should_quit: false,
             show_help: false,
+            search_active: false,
+            search_query: String::new(),
+            search_matches: Vec::new(),
+            search_match_index: 0,
             github_client,
             workflows: WorkflowsTabState::new(),
             runners: RunnersTabState::new(),
@@ -214,6 +226,41 @@ impl App {
                         return Ok(());
                     }
 
+                    // When search input is active, capture text input
+                    if self.search_active {
+                        match key.code {
+                            KeyCode::Esc => {
+                                self.search_active = false;
+                                self.search_query.clear();
+                                self.search_matches.clear();
+                            }
+                            KeyCode::Enter => {
+                                self.search_active = false;
+                                self.execute_search();
+                            }
+                            KeyCode::Backspace => {
+                                self.search_query.pop();
+                            }
+                            KeyCode::Char(c) => {
+                                self.search_query.push(c);
+                            }
+                            _ => {}
+                        }
+                        return Ok(());
+                    }
+
+                    // Handle Ctrl modifier keys first
+                    if key.modifiers.contains(KeyModifiers::CONTROL) {
+                        match key.code {
+                            KeyCode::Char('d') => self.handle_page_down(),
+                            KeyCode::Char('u') => self.handle_page_up(),
+                            KeyCode::Char('f') => self.handle_page_down(),
+                            KeyCode::Char('b') => self.handle_page_up(),
+                            _ => {}
+                        }
+                        return Ok(());
+                    }
+
                     match key.code {
                         KeyCode::Char('q') => self.should_quit = true,
                         KeyCode::Char('?') => self.show_help = true,
@@ -227,18 +274,32 @@ impl App {
                             self.clear_console_badge_if_viewing();
                             self.on_tab_change().await;
                         }
+                        // Arrow keys
                         KeyCode::Up => self.handle_up(),
                         KeyCode::Down => self.handle_down(),
                         KeyCode::Left => self.handle_left(),
                         KeyCode::Right => self.handle_right(),
+                        // Vim navigation
+                        KeyCode::Char('k') => self.handle_up(),
+                        KeyCode::Char('j') => self.handle_down(),
+                        KeyCode::Char('h') => self.handle_left(),
+                        KeyCode::Char('l') => self.handle_right(),
+                        // Page navigation
                         KeyCode::PageUp => self.handle_page_up(),
                         KeyCode::PageDown => self.handle_page_down(),
+                        // Jump to start/end
                         KeyCode::Home => self.handle_home(),
                         KeyCode::End => self.handle_end(),
+                        KeyCode::Char('g') => self.handle_home(),
+                        KeyCode::Char('G') => self.handle_end(),
+                        // Actions
                         KeyCode::Enter => self.handle_enter().await,
                         KeyCode::Esc => self.handle_escape(),
                         KeyCode::Char('r') => self.handle_refresh().await,
                         KeyCode::Char('/') => self.handle_search_start(),
+                        // Search navigation
+                        KeyCode::Char('n') => self.search_next(),
+                        KeyCode::Char('N') => self.search_prev(),
                         _ => {}
                     }
                 }
@@ -321,8 +382,95 @@ impl App {
 
     /// Handle search start (/ key).
     fn handle_search_start(&mut self) {
-        if self.active_tab == Tab::Workflows {
-            self.workflows.search_active = true;
+        // Only activate search when viewing logs
+        let in_logs = match self.active_tab {
+            Tab::Workflows => matches!(self.workflows.nav.current(), ViewLevel::Logs { .. }),
+            Tab::Runners => matches!(self.runners.nav.current(), RunnersViewLevel::Logs { .. }),
+            Tab::Console => false,
+        };
+        if in_logs {
+            self.search_active = true;
+            self.search_query.clear();
+            self.search_matches.clear();
+            self.search_match_index = 0;
+        }
+    }
+
+    /// Execute search on current log content.
+    fn execute_search(&mut self) {
+        if self.search_query.is_empty() {
+            self.search_matches.clear();
+            return;
+        }
+
+        let logs = match self.active_tab {
+            Tab::Workflows => {
+                if let LoadingState::Loaded(ref logs) = self.workflows.log_content {
+                    logs.clone()
+                } else {
+                    return;
+                }
+            }
+            Tab::Runners => {
+                if let LoadingState::Loaded(ref logs) = self.runners.log_content {
+                    logs.clone()
+                } else {
+                    return;
+                }
+            }
+            Tab::Console => return,
+        };
+
+        // Find all matching line numbers (0-indexed)
+        let query_lower = self.search_query.to_lowercase();
+        self.search_matches = logs
+            .lines()
+            .enumerate()
+            .filter(|(_, line)| line.to_lowercase().contains(&query_lower))
+            .map(|(i, _)| i)
+            .collect();
+
+        // Jump to first match if any
+        if !self.search_matches.is_empty() {
+            self.search_match_index = 0;
+            self.scroll_to_match();
+        }
+    }
+
+    /// Navigate to next search match.
+    fn search_next(&mut self) {
+        if self.search_matches.is_empty() {
+            return;
+        }
+        self.search_match_index = (self.search_match_index + 1) % self.search_matches.len();
+        self.scroll_to_match();
+    }
+
+    /// Navigate to previous search match.
+    fn search_prev(&mut self) {
+        if self.search_matches.is_empty() {
+            return;
+        }
+        if self.search_match_index == 0 {
+            self.search_match_index = self.search_matches.len() - 1;
+        } else {
+            self.search_match_index -= 1;
+        }
+        self.scroll_to_match();
+    }
+
+    /// Scroll log view to current search match.
+    fn scroll_to_match(&mut self) {
+        if let Some(&line) = self.search_matches.get(self.search_match_index) {
+            match self.active_tab {
+                Tab::Workflows => {
+                    self.workflows.log_scroll_y = line as u16;
+                }
+                Tab::Runners => {
+                    self.runners.log_scroll_y = line as u16;
+                }
+                Tab::Console => {}
+            }
         }
     }
 

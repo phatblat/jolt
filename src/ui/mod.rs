@@ -87,6 +87,17 @@ fn draw_runners_tab(frame: &mut Frame, app: &mut App, area: Rect) {
 
 /// Draw the log viewer for the Runners tab.
 fn draw_runners_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
+    // Split area for search input if active
+    let (log_area, search_area) = if app.search_active {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(1)])
+            .split(area);
+        (chunks[0], Some(chunks[1]))
+    } else {
+        (area, None)
+    };
+
     match &app.runners.log_content {
         LoadingState::Idle => {
             let block = Block::default().borders(Borders::ALL).title(" Logs ");
@@ -94,7 +105,7 @@ fn draw_runners_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
                 .alignment(Alignment::Center)
                 .style(Style::default().fg(Color::DarkGray))
                 .block(block);
-            frame.render_widget(text, area);
+            frame.render_widget(text, log_area);
         }
         LoadingState::Loading => {
             let block = Block::default().borders(Borders::ALL).title(" Logs ");
@@ -102,7 +113,7 @@ fn draw_runners_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
                 .alignment(Alignment::Center)
                 .style(Style::default().fg(Color::Yellow))
                 .block(block);
-            frame.render_widget(text, area);
+            frame.render_widget(text, log_area);
         }
         LoadingState::Error(e) => {
             let block = Block::default().borders(Borders::ALL).title(" Logs ");
@@ -110,32 +121,59 @@ fn draw_runners_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
                 .alignment(Alignment::Center)
                 .style(Style::default().fg(Color::Red))
                 .block(block);
-            frame.render_widget(text, area);
+            frame.render_widget(text, log_area);
         }
         LoadingState::Loaded(logs) => {
             let line_count = logs.lines().count();
             let scroll_y = app.runners.log_scroll_y as usize;
 
-            let title = format!(
-                " Logs [{}-{}/{}] ",
-                scroll_y + 1,
-                (scroll_y + area.height.saturating_sub(2) as usize).min(line_count),
-                line_count
-            );
+            // Build title with line info and search match count
+            let title = if !app.search_matches.is_empty() {
+                format!(
+                    " Logs [{}-{}/{}] Match {}/{} ",
+                    scroll_y + 1,
+                    (scroll_y + log_area.height.saturating_sub(2) as usize).min(line_count),
+                    line_count,
+                    app.search_match_index + 1,
+                    app.search_matches.len()
+                )
+            } else {
+                format!(
+                    " Logs [{}-{}/{}] ",
+                    scroll_y + 1,
+                    (scroll_y + log_area.height.saturating_sub(2) as usize).min(line_count),
+                    line_count
+                )
+            };
 
             let block = Block::default().borders(Borders::ALL).title(title);
 
+            // Add line numbers and highlight matching lines
+            let query_lower = app.search_query.to_lowercase();
             let numbered_lines: Vec<Line> = logs
                 .lines()
                 .enumerate()
                 .map(|(i, line)| {
                     let line_num = i + 1;
+                    let is_match =
+                        !query_lower.is_empty() && line.to_lowercase().contains(&query_lower);
+                    let is_current_match =
+                        app.search_matches.get(app.search_match_index) == Some(&i);
+
+                    let line_style = if is_current_match {
+                        Style::default().bg(Color::Yellow).fg(Color::Black)
+                    } else if is_match {
+                        Style::default().bg(Color::DarkGray)
+                    } else {
+                        Style::default()
+                    };
+
                     Line::from(vec![
                         Span::styled(
                             format!("{:>6} │ ", line_num),
                             Style::default().fg(Color::DarkGray),
                         ),
-                        Span::raw(line),
+                        Span::styled(line, line_style),
                     ])
                 })
                 .collect();
@@ -143,8 +181,19 @@ fn draw_runners_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
             let text = Paragraph::new(numbered_lines)
                 .block(block)
                 .scroll((app.runners.log_scroll_y, app.runners.log_scroll_x));
-            frame.render_widget(text, area);
+            frame.render_widget(text, log_area);
         }
+    }
+
+    // Render search input if active
+    if let Some(search_area) = search_area {
+        let search_line = Line::from(vec![
+            Span::styled("/", Style::default().fg(Color::Yellow)),
+            Span::raw(&app.search_query),
+            Span::styled("█", Style::default().fg(Color::Yellow)),
+        ]);
+        let search_widget = Paragraph::new(search_line).style(Style::default().bg(Color::DarkGray));
+        frame.render_widget(search_widget, search_area);
     }
 }
 
@@ -174,6 +223,17 @@ fn draw_workflows_tab(frame: &mut Frame, app: &mut App, area: Rect) {
 
 /// Draw the log viewer.
 fn draw_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
+    // Split area for search input if active
+    let (log_area, search_area) = if app.search_active {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(1)])
+            .split(area);
+        (chunks[0], Some(chunks[1]))
+    } else {
+        (area, None)
+    };
+
     match &app.workflows.log_content {
         LoadingState::Idle => {
             let block = Block::default().borders(Borders::ALL).title(" Logs ");
@@ -181,7 +241,7 @@ fn draw_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
                 .alignment(Alignment::Center)
                 .style(Style::default().fg(Color::DarkGray))
                 .block(block);
-            frame.render_widget(text, area);
+            frame.render_widget(text, log_area);
         }
         LoadingState::Loading => {
             let block = Block::default().borders(Borders::ALL).title(" Logs ");
@@ -189,7 +249,7 @@ fn draw_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
                 .alignment(Alignment::Center)
                 .style(Style::default().fg(Color::Yellow))
                 .block(block);
-            frame.render_widget(text, area);
+            frame.render_widget(text, log_area);
         }
         LoadingState::Error(e) => {
             let block = Block::default().borders(Borders::ALL).title(" Logs ");
@@ -197,34 +257,59 @@ fn draw_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
                 .alignment(Alignment::Center)
                 .style(Style::default().fg(Color::Red))
                 .block(block);
-            frame.render_widget(text, area);
+            frame.render_widget(text, log_area);
         }
         LoadingState::Loaded(logs) => {
             let line_count = logs.lines().count();
             let scroll_y = app.workflows.log_scroll_y as usize;
 
-            // Build title with line info
-            let title = format!(
-                " Logs [{}-{}/{}] ",
-                scroll_y + 1,
-                (scroll_y + area.height.saturating_sub(2) as usize).min(line_count),
-                line_count
-            );
+            // Build title with line info and search match count
+            let title = if !app.search_matches.is_empty() {
+                format!(
+                    " Logs [{}-{}/{}] Match {}/{} ",
+                    scroll_y + 1,
+                    (scroll_y + log_area.height.saturating_sub(2) as usize).min(line_count),
+                    line_count,
+                    app.search_match_index + 1,
+                    app.search_matches.len()
+                )
+            } else {
+                format!(
+                    " Logs [{}-{}/{}] ",
+                    scroll_y + 1,
+                    (scroll_y + log_area.height.saturating_sub(2) as usize).min(line_count),
+                    line_count
+                )
+            };
 
             let block = Block::default().borders(Borders::ALL).title(title);
 
-            // Add line numbers to each line
+            // Add line numbers and highlight matching lines
+            let query_lower = app.search_query.to_lowercase();
             let numbered_lines: Vec<Line> = logs
                 .lines()
                 .enumerate()
                 .map(|(i, line)| {
                     let line_num = i + 1;
+                    let is_match =
+                        !query_lower.is_empty() && line.to_lowercase().contains(&query_lower);
+                    let is_current_match =
+                        app.search_matches.get(app.search_match_index) == Some(&i);
+
+                    let line_style = if is_current_match {
+                        Style::default().bg(Color::Yellow).fg(Color::Black)
+                    } else if is_match {
+                        Style::default().bg(Color::DarkGray)
+                    } else {
+                        Style::default()
+                    };
+
                     Line::from(vec![
                         Span::styled(
                             format!("{:>6} │ ", line_num),
                             Style::default().fg(Color::DarkGray),
                         ),
-                        Span::raw(line),
+                        Span::styled(line, line_style),
                     ])
                 })
                 .collect();
@@ -232,8 +317,19 @@ fn draw_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
             let text = Paragraph::new(numbered_lines)
                 .block(block)
                 .scroll((app.workflows.log_scroll_y, app.workflows.log_scroll_x));
-            frame.render_widget(text, area);
+            frame.render_widget(text, log_area);
         }
+    }
+
+    // Render search input if active
+    if let Some(search_area) = search_area {
+        let search_line = Line::from(vec![
+            Span::styled("/", Style::default().fg(Color::Yellow)),
+            Span::raw(&app.search_query),
+            Span::styled("█", Style::default().fg(Color::Yellow)),
+        ]);
+        let search_widget = Paragraph::new(search_line).style(Style::default().bg(Color::DarkGray));
+        frame.render_widget(search_widget, search_area);
     }
 }
 
@@ -352,8 +448,8 @@ fn draw_help_overlay(frame: &mut Frame) {
     let area = frame.area();
 
     // Create a centered popup
-    let popup_width = 50;
-    let popup_height = 18;
+    let popup_width = 55;
+    let popup_height = 22;
     let popup_x = (area.width.saturating_sub(popup_width)) / 2;
     let popup_y = (area.height.saturating_sub(popup_height)) / 2;
 
@@ -369,43 +465,51 @@ fn draw_help_overlay(frame: &mut Frame) {
         )]),
         Line::from(""),
         Line::from(vec![
-            Span::styled("  ↑/↓       ", Style::default().fg(Color::Cyan)),
+            Span::styled("  ↑/↓ or j/k    ", Style::default().fg(Color::Cyan)),
             Span::raw("Navigate list / scroll logs"),
         ]),
         Line::from(vec![
-            Span::styled("  ←/→       ", Style::default().fg(Color::Cyan)),
+            Span::styled("  ←/→ or h/l    ", Style::default().fg(Color::Cyan)),
             Span::raw("Horizontal scroll (logs)"),
         ]),
         Line::from(vec![
-            Span::styled("  Enter     ", Style::default().fg(Color::Cyan)),
+            Span::styled("  Enter         ", Style::default().fg(Color::Cyan)),
             Span::raw("Select / drill down"),
         ]),
         Line::from(vec![
-            Span::styled("  Esc       ", Style::default().fg(Color::Cyan)),
+            Span::styled("  Esc           ", Style::default().fg(Color::Cyan)),
             Span::raw("Go back / close help"),
         ]),
         Line::from(vec![
-            Span::styled("  Tab       ", Style::default().fg(Color::Cyan)),
+            Span::styled("  Tab           ", Style::default().fg(Color::Cyan)),
             Span::raw("Switch tabs"),
         ]),
         Line::from(vec![
-            Span::styled("  PgUp/PgDn ", Style::default().fg(Color::Cyan)),
+            Span::styled("  PgUp/Dn ^u/^d ", Style::default().fg(Color::Cyan)),
             Span::raw("Page scroll (logs)"),
         ]),
         Line::from(vec![
-            Span::styled("  Home/End  ", Style::default().fg(Color::Cyan)),
+            Span::styled("  Home/End g/G  ", Style::default().fg(Color::Cyan)),
             Span::raw("Jump to start/end (logs)"),
         ]),
         Line::from(vec![
-            Span::styled("  r         ", Style::default().fg(Color::Cyan)),
+            Span::styled("  /             ", Style::default().fg(Color::Cyan)),
+            Span::raw("Search in logs"),
+        ]),
+        Line::from(vec![
+            Span::styled("  n/N           ", Style::default().fg(Color::Cyan)),
+            Span::raw("Next/prev search match"),
+        ]),
+        Line::from(vec![
+            Span::styled("  r             ", Style::default().fg(Color::Cyan)),
             Span::raw("Refresh current view"),
         ]),
         Line::from(vec![
-            Span::styled("  ?         ", Style::default().fg(Color::Cyan)),
+            Span::styled("  ?             ", Style::default().fg(Color::Cyan)),
             Span::raw("Show/hide this help"),
         ]),
         Line::from(vec![
-            Span::styled("  q         ", Style::default().fg(Color::Cyan)),
+            Span::styled("  q             ", Style::default().fg(Color::Cyan)),
             Span::raw("Quit"),
         ]),
         Line::from(""),
