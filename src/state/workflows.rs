@@ -255,8 +255,45 @@ impl WorkflowsTabState {
     }
 
     /// Navigate back (Escape key).
+    /// Clears all child list data so fresh data loads when drilling down again.
     pub fn go_back(&mut self) -> bool {
-        self.nav.pop()
+        let current = self.nav.current().clone();
+        let popped = self.nav.pop();
+
+        if popped {
+            // Clear all lists below the level we came from
+            match current {
+                ViewLevel::Repositories { .. } => {
+                    self.repositories = SelectableList::new();
+                    self.workflows = SelectableList::new();
+                    self.runs = SelectableList::new();
+                    self.jobs = SelectableList::new();
+                    self.log_content = LoadingState::Idle;
+                }
+                ViewLevel::Workflows { .. } => {
+                    self.workflows = SelectableList::new();
+                    self.runs = SelectableList::new();
+                    self.jobs = SelectableList::new();
+                    self.log_content = LoadingState::Idle;
+                }
+                ViewLevel::Runs { .. } => {
+                    self.runs = SelectableList::new();
+                    self.jobs = SelectableList::new();
+                    self.log_content = LoadingState::Idle;
+                }
+                ViewLevel::Jobs { .. } => {
+                    self.jobs = SelectableList::new();
+                    self.log_content = LoadingState::Idle;
+                }
+                ViewLevel::Logs { .. } => {
+                    self.log_content = LoadingState::Idle;
+                    self.log_scroll_x = 0;
+                    self.log_scroll_y = 0;
+                }
+                ViewLevel::Owners => {}
+            }
+        }
+        popped
     }
 
     /// Handle up arrow key.
