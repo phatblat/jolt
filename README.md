@@ -47,18 +47,18 @@ jolt
 
 ### Keyboard Shortcuts
 
-| Key | Action |
-|-----|--------|
-| Tab | Switch tabs |
-| ↑/↓ | Navigate lists / Scroll logs |
-| ←/→ | Horizontal scroll in logs |
-| Enter | Drill down / Select |
-| Esc | Go back |
-| PgUp/PgDn | Page scroll in logs |
-| Home/End | Jump to start/end of logs |
-| r | Refresh current view |
-| ? | Show help |
-| q | Quit |
+| Key       | Action                       |
+| --------- | ---------------------------- |
+| Tab       | Switch tabs                  |
+| ↑/↓       | Navigate lists / Scroll logs |
+| ←/→       | Horizontal scroll in logs    |
+| Enter     | Drill down / Select          |
+| Esc       | Go back                      |
+| PgUp/PgDn | Page scroll in logs          |
+| Home/End  | Jump to start/end of logs    |
+| r         | Refresh current view         |
+| ?         | Show help                    |
+| q         | Quit                         |
 
 ## Development
 
@@ -77,6 +77,23 @@ just clean
 ```
 
 ## Architecture
+
+Cache-first data loading for all levels of navigation:
+
+| View Level   | Cache Path                                                                                   |
+| ------------ | -------------------------------------------------------------------------------------------- |
+| Owners       | ~/Library/Caches/jolt/owners.json                                                            |
+| Repositories | ~/Library/Caches/jolt/owners/{owner}/repos.json                                              |
+| Workflows    | ~/Library/Caches/jolt/owners/{owner}/repos/{repo}/workflows.json                             |
+| Runs         | ~/Library/Caches/jolt/owners/{owner}/repos/{repo}/workflows/{id}/runs.json                   |
+| Jobs         | ~/Library/Caches/jolt/owners/{owner}/repos/{repo}/workflows/{id}/runs/{id}/jobs.json         |
+| Logs         | ~/Library/Caches/jolt/owners/{owner}/repos/{repo}/workflows/{id}/runs/{id}/jobs/{id}/log.txt |
+
+Each view:
+
+1. Shows cached data instantly on navigation (no loading spinner)
+2. Fetches fresh data in the background and updates the display
+3. Only shows errors if there's no cached data to fall back to
 
 ```
 src/
