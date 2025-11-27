@@ -2,6 +2,8 @@
 // Initializes terminal, runs the app, and handles cleanup.
 
 mod app;
+mod error;
+mod github;
 mod ui;
 
 use std::io;
