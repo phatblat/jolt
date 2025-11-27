@@ -144,6 +144,13 @@ def display_failures(
         run_info.append(f"{run['head_branch']}\n", style="cyan")
         run_info.append("Commit: ", style="dim")
         run_info.append(f"{run['head_sha'][:7]}\n", style="yellow")
+
+        # Add PR number if available
+        if run.get("pull_requests"):
+            pr_numbers = [str(pr["number"]) for pr in run["pull_requests"]]
+            run_info.append("PR: ", style="dim")
+            run_info.append(f"#{', #'.join(pr_numbers)}\n", style="magenta")
+
         run_info.append("Started: ", style="dim")
         run_info.append(f"{format_time_ago(run['created_at'])}\n", style="white")
         run_info.append("URL: ", style="dim")
