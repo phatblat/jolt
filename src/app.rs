@@ -548,9 +548,28 @@ impl App {
 
     /// Toggle favorite in Workflows tab.
     fn toggle_workflows_favorite(&mut self) {
-        match self.workflows.nav.current() {
+        match self.workflows.nav.current().clone() {
             ViewLevel::Owners => {
-                if let Some(owner) = self.workflows.owners.selected_item() {
+                // Get selected index and sort data the same way as rendering
+                let index = match self.workflows.owners.selected() {
+                    Some(i) => i,
+                    None => return,
+                };
+                let data = match self.workflows.owners.data.data() {
+                    Some(d) => d,
+                    None => return,
+                };
+                let mut sorted: Vec<_> = data.items.iter().collect();
+                sorted.sort_by(|a, b| {
+                    let a_fav = self.favorite_owners.contains(&a.login);
+                    let b_fav = self.favorite_owners.contains(&b.login);
+                    match (a_fav, b_fav) {
+                        (true, false) => std::cmp::Ordering::Less,
+                        (false, true) => std::cmp::Ordering::Greater,
+                        _ => a.login.cmp(&b.login),
+                    }
+                });
+                if let Some(owner) = sorted.get(index) {
                     let key = owner.login.clone();
                     if self.favorite_owners.contains(&key) {
                         self.favorite_owners.remove(&key);
@@ -559,8 +578,29 @@ impl App {
                     }
                 }
             }
-            ViewLevel::Repositories { owner } => {
-                if let Some(repo) = self.workflows.repositories.selected_item() {
+            ViewLevel::Repositories { ref owner } => {
+                let index = match self.workflows.repositories.selected() {
+                    Some(i) => i,
+                    None => return,
+                };
+                let data = match self.workflows.repositories.data.data() {
+                    Some(d) => d,
+                    None => return,
+                };
+                let mut sorted: Vec<_> = data.items.iter().collect();
+                let owner = owner.clone();
+                sorted.sort_by(|a, b| {
+                    let a_key = format!("{}/{}", owner, a.name);
+                    let b_key = format!("{}/{}", owner, b.name);
+                    let a_fav = self.favorite_repos.contains(&a_key);
+                    let b_fav = self.favorite_repos.contains(&b_key);
+                    match (a_fav, b_fav) {
+                        (true, false) => std::cmp::Ordering::Less,
+                        (false, true) => std::cmp::Ordering::Greater,
+                        _ => a.name.cmp(&b.name),
+                    }
+                });
+                if let Some(repo) = sorted.get(index) {
                     let key = format!("{}/{}", owner, repo.name);
                     if self.favorite_repos.contains(&key) {
                         self.favorite_repos.remove(&key);
@@ -569,8 +609,33 @@ impl App {
                     }
                 }
             }
-            ViewLevel::Workflows { owner, repo } => {
-                if let Some(workflow) = self.workflows.workflows.selected_item() {
+            ViewLevel::Workflows {
+                ref owner,
+                ref repo,
+            } => {
+                let index = match self.workflows.workflows.selected() {
+                    Some(i) => i,
+                    None => return,
+                };
+                let data = match self.workflows.workflows.data.data() {
+                    Some(d) => d,
+                    None => return,
+                };
+                let mut sorted: Vec<_> = data.items.iter().collect();
+                let owner = owner.clone();
+                let repo = repo.clone();
+                sorted.sort_by(|a, b| {
+                    let a_key = format!("{}/{}/{}", owner, repo, a.id);
+                    let b_key = format!("{}/{}/{}", owner, repo, b.id);
+                    let a_fav = self.favorite_workflows.contains(&a_key);
+                    let b_fav = self.favorite_workflows.contains(&b_key);
+                    match (a_fav, b_fav) {
+                        (true, false) => std::cmp::Ordering::Less,
+                        (false, true) => std::cmp::Ordering::Greater,
+                        _ => a.name.cmp(&b.name),
+                    }
+                });
+                if let Some(workflow) = sorted.get(index) {
                     let key = format!("{}/{}/{}", owner, repo, workflow.id);
                     if self.favorite_workflows.contains(&key) {
                         self.favorite_workflows.remove(&key);
@@ -585,9 +650,29 @@ impl App {
 
     /// Toggle favorite in Runners tab.
     fn toggle_runners_favorite(&mut self) {
-        match self.runners.nav.current() {
+        match self.runners.nav.current().clone() {
             RunnersViewLevel::Repositories => {
-                if let Some(repo) = self.runners.repositories.selected_item() {
+                let index = match self.runners.repositories.selected() {
+                    Some(i) => i,
+                    None => return,
+                };
+                let data = match self.runners.repositories.data.data() {
+                    Some(d) => d,
+                    None => return,
+                };
+                let mut sorted: Vec<_> = data.items.iter().collect();
+                sorted.sort_by(|a, b| {
+                    let a_key = format!("{}/{}", a.owner.login, a.name);
+                    let b_key = format!("{}/{}", b.owner.login, b.name);
+                    let a_fav = self.favorite_repos.contains(&a_key);
+                    let b_fav = self.favorite_repos.contains(&b_key);
+                    match (a_fav, b_fav) {
+                        (true, false) => std::cmp::Ordering::Less,
+                        (false, true) => std::cmp::Ordering::Greater,
+                        _ => a_key.cmp(&b_key),
+                    }
+                });
+                if let Some(repo) = sorted.get(index) {
                     let key = format!("{}/{}", repo.owner.login, repo.name);
                     if self.favorite_repos.contains(&key) {
                         self.favorite_repos.remove(&key);
@@ -596,8 +681,33 @@ impl App {
                     }
                 }
             }
-            RunnersViewLevel::Runners { owner, repo } => {
-                if let Some(runner) = self.runners.runners.selected_item() {
+            RunnersViewLevel::Runners {
+                ref owner,
+                ref repo,
+            } => {
+                let index = match self.runners.runners.selected() {
+                    Some(i) => i,
+                    None => return,
+                };
+                let data = match self.runners.runners.data.data() {
+                    Some(d) => d,
+                    None => return,
+                };
+                let mut sorted: Vec<_> = data.items.iter().collect();
+                let owner = owner.clone();
+                let repo = repo.clone();
+                sorted.sort_by(|a, b| {
+                    let a_key = format!("{}/{}/{}", owner, repo, a.name);
+                    let b_key = format!("{}/{}/{}", owner, repo, b.name);
+                    let a_fav = self.favorite_runners.contains(&a_key);
+                    let b_fav = self.favorite_runners.contains(&b_key);
+                    match (a_fav, b_fav) {
+                        (true, false) => std::cmp::Ordering::Less,
+                        (false, true) => std::cmp::Ordering::Greater,
+                        _ => a.name.cmp(&b.name),
+                    }
+                });
+                if let Some(runner) = sorted.get(index) {
                     let key = format!("{}/{}/{}", owner, repo, runner.name);
                     if self.favorite_runners.contains(&key) {
                         self.favorite_runners.remove(&key);
