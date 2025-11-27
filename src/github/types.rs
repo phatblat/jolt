@@ -5,9 +5,10 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 /// Owner type discriminator (user or organization).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum OwnerType {
     User,
+    #[default]
     Organization,
     Bot,
     #[serde(other)]
@@ -19,7 +20,7 @@ pub enum OwnerType {
 pub struct Owner {
     pub id: u64,
     pub login: String,
-    #[serde(rename = "type")]
+    #[serde(rename = "type", default)]
     pub owner_type: OwnerType,
     pub avatar_url: Option<String>,
 }
