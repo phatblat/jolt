@@ -319,16 +319,29 @@ pub fn render_jobs_list(frame: &mut Frame, list: &mut SelectableList<Job>, area:
                         };
 
                         let color = conclusion_color(&job.conclusion);
+                        let is_in_progress = job.status == RunStatus::InProgress;
 
-                        let duration = match (job.started_at, job.completed_at) {
-                            (Some(start), Some(end)) => {
-                                let secs = end.signed_duration_since(start).num_seconds();
+                        // Calculate duration - live for in-progress, final for completed
+                        let duration = if is_in_progress {
+                            if let Some(start) = job.started_at {
+                                let secs = chrono::Utc::now()
+                                    .signed_duration_since(start)
+                                    .num_seconds();
                                 format!("{}m {}s", secs / 60, secs % 60)
+                            } else {
+                                "-".to_string()
                             }
-                            _ => "-".to_string(),
+                        } else {
+                            match (job.started_at, job.completed_at) {
+                                (Some(start), Some(end)) => {
+                                    let secs = end.signed_duration_since(start).num_seconds();
+                                    format!("{}m {}s", secs / 60, secs % 60)
+                                }
+                                _ => "-".to_string(),
+                            }
                         };
 
-                        let mut spans = vec![
+                        let mut first_line = vec![
                             Span::raw(format!("{} ", status_icon)),
                             Span::styled(&job.name, Style::default().fg(color)),
                             Span::styled(
@@ -337,14 +350,45 @@ pub fn render_jobs_list(frame: &mut Frame, list: &mut SelectableList<Job>, area:
                             ),
                         ];
 
-                        if let Some(runner) = &job.runner_name {
-                            spans.push(Span::styled(
-                                format!("  @ {}", runner),
-                                Style::default().fg(Color::Cyan),
-                            ));
-                        }
+                        // For in-progress jobs, show additional info on separate lines
+                        if is_in_progress {
+                            let mut lines = vec![Line::from(first_line)];
 
-                        ListItem::new(Line::from(spans))
+                            // Show runner name on its own line
+                            if let Some(runner) = &job.runner_name {
+                                lines.push(Line::from(vec![
+                                    Span::raw("     "),
+                                    Span::styled("@ ", Style::default().fg(Color::Cyan)),
+                                    Span::styled(runner, Style::default().fg(Color::Cyan)),
+                                ]));
+                            }
+
+                            // Find current step (in_progress status)
+                            let current_step = job
+                                .steps
+                                .iter()
+                                .find(|s| s.status == RunStatus::InProgress)
+                                .map(|s| s.name.as_str());
+
+                            if let Some(step_name) = current_step {
+                                lines.push(Line::from(vec![
+                                    Span::raw("     "),
+                                    Span::styled("→ ", Style::default().fg(Color::Yellow)),
+                                    Span::styled(step_name, Style::default().fg(Color::Yellow)),
+                                ]));
+                            }
+
+                            ListItem::new(lines)
+                        } else {
+                            // For completed jobs, show runner on same line
+                            if let Some(runner) = &job.runner_name {
+                                first_line.push(Span::styled(
+                                    format!("  @ {}", runner),
+                                    Style::default().fg(Color::Cyan),
+                                ));
+                            }
+                            ListItem::new(Line::from(first_line))
+                        }
                     })
                     .collect();
 

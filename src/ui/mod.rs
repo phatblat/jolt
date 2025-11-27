@@ -117,9 +117,19 @@ fn draw_runners_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
         }
         LoadingState::Error(e) => {
             let block = Block::default().borders(Borders::ALL).title(" Logs ");
-            let text = Paragraph::new(format!("❌ {}", e))
+            let lines = vec![
+                Line::from(Span::styled(
+                    format!("❌ {}", e),
+                    Style::default().fg(Color::Red),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "Press 'o' to view in browser",
+                    Style::default().fg(Color::DarkGray),
+                )),
+            ];
+            let text = Paragraph::new(lines)
                 .alignment(Alignment::Center)
-                .style(Style::default().fg(Color::Red))
                 .block(block);
             frame.render_widget(text, log_area);
         }
@@ -253,9 +263,19 @@ fn draw_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
         }
         LoadingState::Error(e) => {
             let block = Block::default().borders(Borders::ALL).title(" Logs ");
-            let text = Paragraph::new(format!("❌ {}", e))
+            let lines = vec![
+                Line::from(Span::styled(
+                    format!("❌ {}", e),
+                    Style::default().fg(Color::Red),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "Press 'o' to view in browser",
+                    Style::default().fg(Color::DarkGray),
+                )),
+            ];
+            let text = Paragraph::new(lines)
                 .alignment(Alignment::Center)
-                .style(Style::default().fg(Color::Red))
                 .block(block);
             frame.render_widget(text, log_area);
         }
