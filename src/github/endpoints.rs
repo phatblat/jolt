@@ -1,12 +1,27 @@
 // GitHub API endpoint functions.
 // Provides typed methods for fetching data from the GitHub REST API.
 
-use serde::Deserialize;
+use reqwest::Response;
+use serde::{Deserialize, de::DeserializeOwned};
 
-use crate::error::Result;
+use crate::error::{JoltError, Result};
 
 use super::client::GitHubClient;
 use super::types::{Job, Owner, Repository, Runner, Workflow, WorkflowRun};
+
+/// Parse JSON response with better error messages.
+async fn parse_json<T: DeserializeOwned>(response: Response) -> Result<T> {
+    let text = response.text().await.map_err(JoltError::Api)?;
+    serde_json::from_str(&text).map_err(|e| {
+        // Include the first 500 chars of response for debugging
+        let preview = if text.len() > 500 {
+            format!("{}...", &text[..500])
+        } else {
+            text.clone()
+        };
+        JoltError::Other(format!("JSON parse error: {}. Response: {}", e, preview))
+    })
+}
 
 /// Response wrapper for workflows list.
 #[derive(Debug, Deserialize)]
@@ -40,15 +55,13 @@ impl GitHubClient {
     /// Get the authenticated user.
     pub async fn get_current_user(&mut self) -> Result<Owner> {
         let response = self.get("/user").await?;
-        let user: Owner = response.json().await?;
-        Ok(user)
+        parse_json(response).await
     }
 
     /// Get organizations for the authenticated user.
     pub async fn get_user_orgs(&mut self) -> Result<Vec<Owner>> {
         let response = self.get("/user/orgs").await?;
-        let orgs: Vec<Owner> = response.json().await?;
-        Ok(orgs)
+        parse_json(response).await
     }
 
     /// Get repositories accessible to the authenticated user.
@@ -60,8 +73,7 @@ impl GitHubClient {
             ("per_page", &per_page.to_string()),
         ];
         let response = self.get_with_params("/user/repos", &params).await?;
-        let repos: Vec<Repository> = response.json().await?;
-        Ok(repos)
+        parse_json(response).await
     }
 
     /// Get repositories for an organization.
@@ -80,15 +92,13 @@ impl GitHubClient {
         let response = self
             .get_with_params(&format!("/orgs/{}/repos", org), &params)
             .await?;
-        let repos: Vec<Repository> = response.json().await?;
-        Ok(repos)
+        parse_json(response).await
     }
 
     /// Get a specific repository.
     pub async fn get_repo(&mut self, owner: &str, repo: &str) -> Result<Repository> {
         let response = self.get(&format!("/repos/{}/{}", owner, repo)).await?;
-        let repository: Repository = response.json().await?;
-        Ok(repository)
+        parse_json(response).await
     }
 
     /// Get workflows for a repository.
@@ -109,7 +119,7 @@ impl GitHubClient {
                 &params,
             )
             .await?;
-        let wrapper: WorkflowsResponse = response.json().await?;
+        let wrapper: WorkflowsResponse = parse_json(response).await?;
         Ok((wrapper.workflows, wrapper.total_count))
     }
 
@@ -128,7 +138,7 @@ impl GitHubClient {
         let response = self
             .get_with_params(&format!("/repos/{}/{}/actions/runs", owner, repo), &params)
             .await?;
-        let wrapper: WorkflowRunsResponse = response.json().await?;
+        let wrapper: WorkflowRunsResponse = parse_json(response).await?;
         Ok((wrapper.workflow_runs, wrapper.total_count))
     }
 
@@ -154,7 +164,7 @@ impl GitHubClient {
                 &params,
             )
             .await?;
-        let wrapper: WorkflowRunsResponse = response.json().await?;
+        let wrapper: WorkflowRunsResponse = parse_json(response).await?;
         Ok((wrapper.workflow_runs, wrapper.total_count))
     }
 
@@ -171,8 +181,7 @@ impl GitHubClient {
                 owner, repo, run_id
             ))
             .await?;
-        let run: WorkflowRun = response.json().await?;
-        Ok(run)
+        parse_json(response).await
     }
 
     /// Get jobs for a workflow run.
@@ -194,7 +203,7 @@ impl GitHubClient {
                 &params,
             )
             .await?;
-        let wrapper: JobsResponse = response.json().await?;
+        let wrapper: JobsResponse = parse_json(response).await?;
         Ok((wrapper.jobs, wrapper.total_count))
     }
 
@@ -206,7 +215,7 @@ impl GitHubClient {
                 owner, repo, job_id
             ))
             .await?;
-        let logs = response.text().await?;
+        let logs = response.text().await.map_err(JoltError::Api)?;
         Ok(logs)
     }
 
@@ -228,7 +237,7 @@ impl GitHubClient {
                 &params,
             )
             .await?;
-        let wrapper: RunnersResponse = response.json().await?;
+        let wrapper: RunnersResponse = parse_json(response).await?;
         Ok((wrapper.runners, wrapper.total_count))
     }
 }
