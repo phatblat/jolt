@@ -8,7 +8,7 @@ mod tabs;
 use ratatui::{prelude::*, widgets::*};
 
 use crate::app::{App, ConsoleLevel, Tab};
-use crate::state::{LoadingState, ViewLevel};
+use crate::state::{LoadingState, RunnersViewLevel, ViewLevel};
 
 /// Main draw function that renders the entire UI.
 pub fn draw(frame: &mut Frame, app: &mut App) {
@@ -25,15 +25,22 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     // Tab bar
     tabs::draw_tabs(frame, app, chunks[0]);
 
-    // Breadcrumb (only for Workflows tab)
-    if app.active_tab == Tab::Workflows {
-        let breadcrumbs = app.workflows.nav.breadcrumbs();
-        breadcrumb::draw_breadcrumb(frame, &breadcrumbs, chunks[1]);
-    } else {
-        let block = Block::default()
-            .borders(Borders::BOTTOM)
-            .border_style(Style::default().fg(Color::DarkGray));
-        frame.render_widget(block, chunks[1]);
+    // Breadcrumb (for Workflows and Runners tabs)
+    match app.active_tab {
+        Tab::Workflows => {
+            let breadcrumbs = app.workflows.nav.breadcrumbs();
+            breadcrumb::draw_breadcrumb(frame, &breadcrumbs, chunks[1]);
+        }
+        Tab::Runners => {
+            let breadcrumbs = app.runners.nav.breadcrumbs();
+            breadcrumb::draw_runners_breadcrumb(frame, &breadcrumbs, chunks[1]);
+        }
+        Tab::Console => {
+            let block = Block::default()
+                .borders(Borders::BOTTOM)
+                .border_style(Style::default().fg(Color::DarkGray));
+            frame.render_widget(block, chunks[1]);
+        }
     }
 
     // Main content area
@@ -46,21 +53,94 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 /// Draw the main content area based on active tab.
 fn draw_content(frame: &mut Frame, app: &mut App, area: Rect) {
     match app.active_tab {
-        Tab::Runners => draw_runners_tab(frame, area),
+        Tab::Runners => draw_runners_tab(frame, app, area),
         Tab::Workflows => draw_workflows_tab(frame, app, area),
         Tab::Console => draw_console_tab(frame, app, area),
     }
 }
 
-/// Draw the Runners tab (placeholder for now).
-fn draw_runners_tab(frame: &mut Frame, area: Rect) {
-    let content = Paragraph::new("Runners tab\n\nRepos with runners will appear here.")
-        .alignment(Alignment::Center)
-        .style(Style::default().fg(Color::DarkGray));
+/// Draw the Runners tab with navigation hierarchy.
+fn draw_runners_tab(frame: &mut Frame, app: &mut App, area: Rect) {
+    match app.runners.nav.current().clone() {
+        RunnersViewLevel::Repositories => {
+            list::render_repositories_list(frame, &mut app.runners.repositories, area);
+        }
+        RunnersViewLevel::Runners { .. } => {
+            list::render_runners_list(frame, &mut app.runners.runners, area);
+        }
+        RunnersViewLevel::Runs { .. } => {
+            list::render_runs_list(frame, &mut app.runners.runs, area);
+        }
+        RunnersViewLevel::Jobs { .. } => {
+            list::render_jobs_list(frame, &mut app.runners.jobs, area);
+        }
+        RunnersViewLevel::Logs { .. } => {
+            draw_runners_log_viewer(frame, app, area);
+        }
+    }
+}
 
-    let block = Block::default().borders(Borders::ALL).title(" Runners ");
+/// Draw the log viewer for the Runners tab.
+fn draw_runners_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
+    match &app.runners.log_content {
+        LoadingState::Idle => {
+            let block = Block::default().borders(Borders::ALL).title(" Logs ");
+            let text = Paragraph::new("Press Enter to load logs")
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(Color::DarkGray))
+                .block(block);
+            frame.render_widget(text, area);
+        }
+        LoadingState::Loading => {
+            let block = Block::default().borders(Borders::ALL).title(" Logs ");
+            let text = Paragraph::new("⏳ Loading logs...")
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(Color::Yellow))
+                .block(block);
+            frame.render_widget(text, area);
+        }
+        LoadingState::Error(e) => {
+            let block = Block::default().borders(Borders::ALL).title(" Logs ");
+            let text = Paragraph::new(format!("❌ {}", e))
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(Color::Red))
+                .block(block);
+            frame.render_widget(text, area);
+        }
+        LoadingState::Loaded(logs) => {
+            let line_count = logs.lines().count();
+            let scroll_y = app.runners.log_scroll_y as usize;
 
-    frame.render_widget(content.block(block), area);
+            let title = format!(
+                " Logs [{}-{}/{}] ",
+                scroll_y + 1,
+                (scroll_y + area.height.saturating_sub(2) as usize).min(line_count),
+                line_count
+            );
+
+            let block = Block::default().borders(Borders::ALL).title(title);
+
+            let numbered_lines: Vec<Line> = logs
+                .lines()
+                .enumerate()
+                .map(|(i, line)| {
+                    let line_num = i + 1;
+                    Line::from(vec![
+                        Span::styled(
+                            format!("{:>6} │ ", line_num),
+                            Style::default().fg(Color::DarkGray),
+                        ),
+                        Span::raw(line),
+                    ])
+                })
+                .collect();
+
+            let text = Paragraph::new(numbered_lines)
+                .block(block)
+                .scroll((app.runners.log_scroll_y, app.runners.log_scroll_x));
+            frame.render_widget(text, area);
+        }
+    }
 }
 
 /// Draw the Workflows tab with navigation hierarchy.
@@ -191,8 +271,10 @@ fn draw_console_tab(frame: &mut Frame, app: &App, area: Rect) {
 
 /// Draw the status bar with keybinding hints.
 fn draw_status_bar(frame: &mut Frame, app: &App, area: Rect) {
-    let in_logs = app.active_tab == Tab::Workflows
-        && matches!(app.workflows.nav.current(), ViewLevel::Logs { .. });
+    let in_logs = (app.active_tab == Tab::Workflows
+        && matches!(app.workflows.nav.current(), ViewLevel::Logs { .. }))
+        || (app.active_tab == Tab::Runners
+            && matches!(app.runners.nav.current(), RunnersViewLevel::Logs { .. }));
 
     let hints = if in_logs {
         vec![

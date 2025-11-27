@@ -8,7 +8,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::prelude::*;
 
 use crate::github::GitHubClient;
-use crate::state::{LoadingState, ViewLevel, WorkflowsTabState};
+use crate::state::{LoadingState, RunnersTabState, RunnersViewLevel, ViewLevel, WorkflowsTabState};
 use crate::ui;
 
 /// Active tab in the application.
@@ -101,6 +101,8 @@ pub struct App {
     pub github_client: Option<GitHubClient>,
     /// Workflows tab state.
     pub workflows: WorkflowsTabState,
+    /// Runners tab state.
+    pub runners: RunnersTabState,
 }
 
 impl App {
@@ -122,6 +124,7 @@ impl App {
             should_quit: false,
             github_client,
             workflows: WorkflowsTabState::new(),
+            runners: RunnersTabState::new(),
         }
     }
 
@@ -179,7 +182,7 @@ impl App {
     fn handle_up(&mut self) {
         match self.active_tab {
             Tab::Workflows => self.workflows.select_prev(),
-            Tab::Runners => {} // TODO: Implement runners tab
+            Tab::Runners => self.runners.select_prev(),
             Tab::Console => {} // TODO: Scroll console
         }
     }
@@ -188,50 +191,62 @@ impl App {
     fn handle_down(&mut self) {
         match self.active_tab {
             Tab::Workflows => self.workflows.select_next(),
-            Tab::Runners => {}
+            Tab::Runners => self.runners.select_next(),
             Tab::Console => {}
         }
     }
 
     /// Handle left arrow key.
     fn handle_left(&mut self) {
-        if self.active_tab == Tab::Workflows {
-            self.workflows.scroll_left();
+        match self.active_tab {
+            Tab::Workflows => self.workflows.scroll_left(),
+            Tab::Runners => self.runners.scroll_left(),
+            Tab::Console => {}
         }
     }
 
     /// Handle right arrow key.
     fn handle_right(&mut self) {
-        if self.active_tab == Tab::Workflows {
-            self.workflows.scroll_right();
+        match self.active_tab {
+            Tab::Workflows => self.workflows.scroll_right(),
+            Tab::Runners => self.runners.scroll_right(),
+            Tab::Console => {}
         }
     }
 
     /// Handle Page Up key.
     fn handle_page_up(&mut self) {
-        if self.active_tab == Tab::Workflows {
-            self.workflows.page_up();
+        match self.active_tab {
+            Tab::Workflows => self.workflows.page_up(),
+            Tab::Runners => self.runners.page_up(),
+            Tab::Console => {}
         }
     }
 
     /// Handle Page Down key.
     fn handle_page_down(&mut self) {
-        if self.active_tab == Tab::Workflows {
-            self.workflows.page_down();
+        match self.active_tab {
+            Tab::Workflows => self.workflows.page_down(),
+            Tab::Runners => self.runners.page_down(),
+            Tab::Console => {}
         }
     }
 
     /// Handle Home key.
     fn handle_home(&mut self) {
-        if self.active_tab == Tab::Workflows {
-            self.workflows.scroll_to_start();
+        match self.active_tab {
+            Tab::Workflows => self.workflows.scroll_to_start(),
+            Tab::Runners => self.runners.scroll_to_start(),
+            Tab::Console => {}
         }
     }
 
     /// Handle End key.
     fn handle_end(&mut self) {
-        if self.active_tab == Tab::Workflows {
-            self.workflows.scroll_to_end();
+        match self.active_tab {
+            Tab::Workflows => self.workflows.scroll_to_end(),
+            Tab::Runners => self.runners.scroll_to_end(),
+            Tab::Console => {}
         }
     }
 
@@ -244,10 +259,15 @@ impl App {
 
     /// Handle Enter key (drill down).
     async fn handle_enter(&mut self) {
-        if self.active_tab != Tab::Workflows {
-            return;
+        match self.active_tab {
+            Tab::Workflows => self.handle_workflows_enter().await,
+            Tab::Runners => self.handle_runners_enter().await,
+            Tab::Console => {}
         }
+    }
 
+    /// Handle Enter in Workflows tab.
+    async fn handle_workflows_enter(&mut self) {
         // Get the next navigation level based on current selection
         let next_level =
             match self.workflows.nav.current().clone() {
@@ -320,26 +340,96 @@ impl App {
         }
     }
 
+    /// Handle Enter in Runners tab.
+    async fn handle_runners_enter(&mut self) {
+        let next_level =
+            match self.runners.nav.current().clone() {
+                RunnersViewLevel::Repositories => {
+                    self.runners.repositories.selected_item().map(|repo| {
+                        RunnersViewLevel::Runners {
+                            owner: repo.owner.login.clone(),
+                            repo: repo.name.clone(),
+                        }
+                    })
+                }
+                RunnersViewLevel::Runners { owner, repo } => self
+                    .runners
+                    .runners
+                    .selected_item()
+                    .map(|runner| RunnersViewLevel::Runs {
+                        owner,
+                        repo,
+                        runner_name: Some(runner.name.clone()),
+                    }),
+                RunnersViewLevel::Runs { owner, repo, .. } => self
+                    .runners
+                    .runs
+                    .selected_item()
+                    .map(|run| RunnersViewLevel::Jobs {
+                        owner,
+                        repo,
+                        run_id: run.id,
+                        run_number: run.run_number,
+                    }),
+                RunnersViewLevel::Jobs {
+                    owner,
+                    repo,
+                    run_id,
+                    ..
+                } => self
+                    .runners
+                    .jobs
+                    .selected_item()
+                    .map(|job| RunnersViewLevel::Logs {
+                        owner,
+                        repo,
+                        run_id,
+                        job_id: job.id,
+                        job_name: job.name.clone(),
+                    }),
+                RunnersViewLevel::Logs { .. } => None,
+            };
+
+        if let Some(level) = next_level {
+            self.runners.nav.push(level);
+            self.load_runners_view().await;
+        }
+    }
+
     /// Handle Escape key (go back).
     fn handle_escape(&mut self) {
-        if self.active_tab == Tab::Workflows {
-            self.workflows.go_back();
+        match self.active_tab {
+            Tab::Workflows => {
+                self.workflows.go_back();
+            }
+            Tab::Runners => {
+                self.runners.go_back();
+            }
+            Tab::Console => {}
         }
     }
 
     /// Handle refresh key.
     async fn handle_refresh(&mut self) {
-        if self.active_tab == Tab::Workflows {
-            self.workflows.clear_current();
-            self.load_current_view().await;
+        match self.active_tab {
+            Tab::Workflows => {
+                self.workflows.clear_current();
+                self.load_current_view().await;
+            }
+            Tab::Runners => {
+                self.runners.clear_current();
+                self.load_runners_view().await;
+            }
+            Tab::Console => {}
         }
     }
 
     /// Called when switching tabs.
     async fn on_tab_change(&mut self) {
-        // Load data for the new tab if needed
-        if self.active_tab == Tab::Workflows {
-            self.load_current_view().await;
+        match self.active_tab {
+            Tab::Workflows => self.load_current_view().await,
+            Tab::Runners => self.load_runners_view().await,
+            Tab::Console => {}
         }
     }
 
@@ -529,6 +619,148 @@ impl App {
 
         let count = filtered.len() as u64;
         Ok((filtered, count))
+    }
+
+    /// Load data for the runners tab current view level.
+    async fn load_runners_view(&mut self) {
+        if self.github_client.is_none() {
+            self.log_error("No GitHub token configured");
+            return;
+        }
+
+        let current_view = self.runners.nav.current().clone();
+
+        match current_view {
+            RunnersViewLevel::Repositories => {
+                if !self.runners.repositories.data.is_loaded() {
+                    self.runners.repositories.set_loading();
+                    // Get all user repos - we'll filter to ones with runners later
+                    // For now, show all repos (runner access requires trying to list runners)
+                    let result = self
+                        .github_client
+                        .as_mut()
+                        .unwrap()
+                        .get_user_repos(1, 30)
+                        .await;
+                    match result {
+                        Ok(repos) => {
+                            let count = repos.len() as u64;
+                            self.runners.repositories.set_loaded(repos, count);
+                        }
+                        Err(e) => {
+                            self.runners.repositories.set_error(e.to_string());
+                            self.log_error(format!("Failed to load repositories: {}", e));
+                        }
+                    }
+                }
+            }
+            RunnersViewLevel::Runners {
+                ref owner,
+                ref repo,
+            } => {
+                if !self.runners.runners.data.is_loaded() {
+                    self.runners.runners.set_loading();
+                    let owner = owner.clone();
+                    let repo = repo.clone();
+                    let result = self
+                        .github_client
+                        .as_mut()
+                        .unwrap()
+                        .get_runners(&owner, &repo, 1, 30)
+                        .await;
+                    match result {
+                        Ok((runners, count)) => {
+                            self.runners.runners.set_loaded(runners, count);
+                        }
+                        Err(e) => {
+                            self.runners.runners.set_error(e.to_string());
+                            self.log_error(format!("Failed to load runners: {}", e));
+                        }
+                    }
+                }
+            }
+            RunnersViewLevel::Runs {
+                ref owner,
+                ref repo,
+                ..
+            } => {
+                if !self.runners.runs.data.is_loaded() {
+                    self.runners.runs.set_loading();
+                    let owner = owner.clone();
+                    let repo = repo.clone();
+                    // Get all workflow runs for the repo
+                    let result = self
+                        .github_client
+                        .as_mut()
+                        .unwrap()
+                        .get_workflow_runs(&owner, &repo, 1, 30)
+                        .await;
+                    match result {
+                        Ok((runs, count)) => {
+                            self.runners.runs.set_loaded(runs, count);
+                        }
+                        Err(e) => {
+                            self.runners.runs.set_error(e.to_string());
+                            self.log_error(format!("Failed to load runs: {}", e));
+                        }
+                    }
+                }
+            }
+            RunnersViewLevel::Jobs {
+                ref owner,
+                ref repo,
+                run_id,
+                ..
+            } => {
+                if !self.runners.jobs.data.is_loaded() {
+                    self.runners.jobs.set_loading();
+                    let owner = owner.clone();
+                    let repo = repo.clone();
+                    let result = self
+                        .github_client
+                        .as_mut()
+                        .unwrap()
+                        .get_jobs(&owner, &repo, run_id, 1, 30)
+                        .await;
+                    match result {
+                        Ok((jobs, count)) => {
+                            self.runners.jobs.set_loaded(jobs, count);
+                        }
+                        Err(e) => {
+                            self.runners.jobs.set_error(e.to_string());
+                            self.log_error(format!("Failed to load jobs: {}", e));
+                        }
+                    }
+                }
+            }
+            RunnersViewLevel::Logs {
+                ref owner,
+                ref repo,
+                job_id,
+                ..
+            } => {
+                if !self.runners.log_content.is_loaded() {
+                    self.runners.log_content = LoadingState::Loading;
+                    let owner = owner.clone();
+                    let repo = repo.clone();
+                    let result = self
+                        .github_client
+                        .as_mut()
+                        .unwrap()
+                        .get_job_logs(&owner, &repo, job_id)
+                        .await;
+                    match result {
+                        Ok(logs) => {
+                            self.runners.log_content = LoadingState::Loaded(logs);
+                        }
+                        Err(e) => {
+                            self.runners.log_content = LoadingState::Error(e.to_string());
+                            self.log_error(format!("Failed to load logs: {}", e));
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Log an error to the console tab.

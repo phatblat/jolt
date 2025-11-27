@@ -5,7 +5,8 @@ use chrono::{DateTime, Utc};
 use ratatui::{prelude::*, widgets::*};
 
 use crate::github::{
-    Job, Owner, OwnerType, Repository, RunConclusion, RunStatus, Workflow, WorkflowRun,
+    Job, Owner, OwnerType, Repository, RunConclusion, RunStatus, Runner, RunnerStatus, Workflow,
+    WorkflowRun,
 };
 use crate::state::{LoadingState, SelectableList};
 
@@ -347,6 +348,68 @@ pub fn render_jobs_list(frame: &mut Frame, list: &mut SelectableList<Job>, area:
 
                 let list_widget = List::new(items)
                     .block(Block::default().borders(Borders::ALL).title(" Jobs "))
+                    .highlight_style(
+                        Style::default()
+                            .bg(Color::DarkGray)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                    .highlight_symbol("> ");
+
+                frame.render_stateful_widget(list_widget, area, &mut list.list_state);
+            }
+        }
+    }
+}
+
+/// Render runners list.
+pub fn render_runners_list(frame: &mut Frame, list: &mut SelectableList<Runner>, area: Rect) {
+    match &list.data {
+        LoadingState::Idle => render_empty(frame, area, "Press Enter to load"),
+        LoadingState::Loading => render_loading(frame, area, "Loading runners"),
+        LoadingState::Error(e) => render_error(frame, area, e),
+        LoadingState::Loaded(data) => {
+            if data.is_empty() {
+                render_empty(frame, area, "No runners found");
+            } else {
+                let items: Vec<ListItem> = data
+                    .items
+                    .iter()
+                    .map(|runner| {
+                        let (status_icon, status_color) = match runner.status {
+                            RunnerStatus::Online => ("🟢", Color::Green),
+                            RunnerStatus::Offline => ("⚫", Color::DarkGray),
+                            RunnerStatus::Unknown => ("❓", Color::Gray),
+                        };
+
+                        let busy_indicator = if runner.busy { " (busy)" } else { "" };
+
+                        let labels: Vec<&str> = runner
+                            .labels
+                            .iter()
+                            .take(3)
+                            .map(|l| l.name.as_str())
+                            .collect();
+                        let labels_str = if labels.is_empty() {
+                            String::new()
+                        } else {
+                            format!("  [{}]", labels.join(", "))
+                        };
+
+                        ListItem::new(Line::from(vec![
+                            Span::raw(format!("{} ", status_icon)),
+                            Span::styled(&runner.name, Style::default().fg(status_color)),
+                            Span::styled(busy_indicator, Style::default().fg(Color::Yellow)),
+                            Span::styled(
+                                format!("  {}", runner.os),
+                                Style::default().fg(Color::Cyan),
+                            ),
+                            Span::styled(labels_str, Style::default().fg(Color::DarkGray)),
+                        ]))
+                    })
+                    .collect();
+
+                let list_widget = List::new(items)
+                    .block(Block::default().borders(Borders::ALL).title(" Runners "))
                     .highlight_style(
                         Style::default()
                             .bg(Color::DarkGray)
