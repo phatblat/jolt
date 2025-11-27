@@ -15,6 +15,11 @@ pub fn state_path() -> Option<PathBuf> {
     cache_dir().map(|dir| dir.join("state.json"))
 }
 
+/// Path to the cached runners repositories list.
+pub fn runners_repos_path() -> Option<PathBuf> {
+    cache_dir().map(|dir| dir.join("runners_repos.json"))
+}
+
 /// Path to an owner's directory.
 pub fn owner_dir(owner: &str) -> Option<PathBuf> {
     cache_dir().map(|dir| dir.join("owners").join(sanitize_name(owner)))

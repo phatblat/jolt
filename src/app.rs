@@ -226,7 +226,7 @@ impl App {
     /// Main event loop.
     pub async fn run(&mut self, terminal: &mut Terminal<impl Backend>) -> io::Result<()> {
         // Initial data load for active tab
-        self.load_current_view().await;
+        self.on_tab_change().await;
 
         while !self.should_quit {
             terminal.draw(|frame| ui::draw(frame, self))?;
@@ -1355,25 +1355,49 @@ impl App {
 
         match current_view {
             RunnersViewLevel::Repositories => {
-                if !self.runners.repositories.data.is_loaded() {
-                    self.runners.repositories.set_loading();
-                    // Get all user repos - we'll filter to ones with runners later
-                    // For now, show all repos (runner access requires trying to list runners)
-                    let result = self
-                        .github_client
-                        .as_mut()
-                        .unwrap()
-                        .get_user_repos(1, 30)
-                        .await;
-                    match result {
-                        Ok(repos) => {
-                            let count = repos.len() as u64;
-                            self.runners.repositories.set_loaded(repos, count);
+                // Load cached repos first for instant display
+                let has_cache = if !self.runners.repositories.data.is_loaded() {
+                    if let Some(path) = cache::runners_repos_path() {
+                        if let Ok(Some(cached)) =
+                            cache::read_cached::<Vec<crate::github::Repository>>(&path)
+                        {
+                            let count = cached.data.len() as u64;
+                            self.runners.repositories.set_loaded(cached.data, count);
+                            true
+                        } else {
+                            self.runners.repositories.set_loading();
+                            false
                         }
-                        Err(e) => {
+                    } else {
+                        self.runners.repositories.set_loading();
+                        false
+                    }
+                } else {
+                    true
+                };
+
+                // Always fetch fresh data and update cache
+                let result = self
+                    .github_client
+                    .as_mut()
+                    .unwrap()
+                    .get_user_repos(1, 30)
+                    .await;
+                match result {
+                    Ok(repos) => {
+                        // Cache the fresh data
+                        if let Some(path) = cache::runners_repos_path() {
+                            let _ = cache::write_cached(&path, &repos, false);
+                        }
+                        let count = repos.len() as u64;
+                        self.runners.repositories.set_loaded(repos, count);
+                    }
+                    Err(e) => {
+                        // Only show error if we don't have cached data
+                        if !has_cache {
                             self.runners.repositories.set_error(e.to_string());
-                            self.log_error(format!("Failed to load repositories: {}", e));
                         }
+                        self.log_error(format!("Failed to load repositories: {}", e));
                     }
                 }
             }
