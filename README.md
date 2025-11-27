@@ -4,33 +4,28 @@ Interactive TUI for browsing GitHub Actions workflows, runs, jobs, and logs.
 
 ## Features
 
-- **Three tabs**: Runners, Workflows, Console
-- **Hierarchical navigation**: Owners → Repos → Workflows → Runs → Jobs → Logs
-- **Breadcrumb trail**: Visual path showing current location
-- **Log viewer**: Scrollable logs with line numbers
+- **Tab-based Navigation**: Workflows tab (Owners → Repos → Workflows → Runs → Jobs → Logs) and Runners tab (Repos → Runners → Runs → Jobs → Logs)
+- **Log Viewer**: Full log content display with horizontal/vertical scrolling, page up/down, and jump to start/end
+- **Job Status Display**: Visual status indicators with colors (green ✓, red ✗, yellow ⏳) and step-by-step breakdown for in-progress jobs
+- **Performance**: Cache-first loading pattern with 5-minute TTL for responsive navigation
+- **State Persistence**: Saves active tab, navigation position, and favorites across sessions
 - **Console**: Error messages with timestamps and badges
-- **State persistence**: Remembers last active tab between sessions
 
-## Setup
-
-This project uses [mise](https://mise.jdx.dev/) for tool management and Rust/Cargo for building.
+## Installation
 
 ### Prerequisites
 
 - Rust toolchain (install via [rustup](https://rustup.rs/))
 - GitHub personal access token
 
-### Build
+### Install
 
 ```bash
-# Build debug version
-cargo build
+# Install from local source
+cargo install --path .
 
-# Build release version
+# Or build without installing
 cargo build --release
-
-# Or using just
-just build
 ```
 
 ## Usage
@@ -47,26 +42,23 @@ export GITHUB_TOKEN="ghp_your_token_here"
 
 ```bash
 # Run the TUI
-cargo run
-
-# Or using just
-just run
+jolt
 ```
 
 ### Keyboard Shortcuts
 
 | Key | Action |
 |-----|--------|
-| `↑`/`↓` | Navigate list / scroll logs |
-| `←`/`→` | Horizontal scroll (logs) |
-| `Enter` | Select / drill down |
-| `Esc` | Go back |
-| `Tab` | Switch tabs |
-| `PgUp`/`PgDn` | Page scroll (logs) |
-| `Home`/`End` | Jump to start/end (logs) |
-| `r` | Refresh current view |
-| `?` | Show help |
-| `q` | Quit |
+| Tab | Switch tabs |
+| ↑/↓ | Navigate lists / Scroll logs |
+| ←/→ | Horizontal scroll in logs |
+| Enter | Drill down / Select |
+| Esc | Go back |
+| PgUp/PgDn | Page scroll in logs |
+| Home/End | Jump to start/end of logs |
+| r | Refresh current view |
+| ? | Show help |
+| q | Quit |
 
 ## Development
 
