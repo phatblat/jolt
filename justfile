@@ -65,8 +65,9 @@ test-run:
 # Run the jolt CLI with arguments
 
 # Usage: just run --repo owner/repo [--workflow NAME] [--pr NUMBER]
-run *ARGS:
-    uv run python jolt.py {{ ARGS }}
+[positional-arguments]
+run *ARGS='':
+    uv run python jolt.py "$@"
 
 # Clean build artifacts and cache
 clean:
