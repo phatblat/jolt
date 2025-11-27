@@ -1,0 +1,20 @@
+[package]
+name = "jolt"
+version = "0.1.0"
+edition = "2024"
+description = "TUI for browsing GitHub Actions workflow runs, jobs, logs, and runners"
+license = "MIT"
+
+[dependencies]
+ratatui = "0.29"
+crossterm = "0.28"
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+directories = "5"
+thiserror = "2"
+chrono = { version = "0.4", features = ["serde"] }
+
+[dev-dependencies]
+tempfile = "3"
