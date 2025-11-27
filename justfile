@@ -59,14 +59,14 @@ test:
 
 # Test the CLI with a sample command (requires GITHUB_TOKEN)
 test-run:
-    @echo "Testing ci-failures CLI..."
-    uv run python ci_failures.py --help
+    @echo "Testing jolt CLI..."
+    uv run python jolt.py --help
 
-# Run the ci-failures CLI with arguments
+# Run the jolt CLI with arguments
 
 # Usage: just run --repo owner/repo [--workflow NAME] [--pr NUMBER]
 run *ARGS:
-    uv run python ci_failures.py {{ ARGS }}
+    uv run python jolt.py {{ ARGS }}
 
 # Clean build artifacts and cache
 clean:

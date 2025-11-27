@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
-CI Failures CLI - View recent GitHub Actions job failures.
+jolt - JOb Log Ticket
+
+Collect and search GitHub Actions workflow logs to extract interesting sections for tickets.
 
 Usage:
-    ci-failures --repo owner/repo [--workflow NAME] [--pr NUMBER] [--limit N]
+    jolt --repo owner/repo [--workflow NAME] [--pr NUMBER] [--limit N]
 
 Requirements:
     pip install requests click rich
@@ -204,15 +206,15 @@ def display_failures(
 )
 def main(repo: str, workflow: str | None, pr: int | None, limit: int, token: str):
     """
-    View recent GitHub Actions job failures.
+    Collect and search GitHub Actions workflow logs to extract interesting sections for tickets.
 
     Examples:
 
-        ci-failures --repo myorg/myrepo --workflow "CI"
+        jolt --repo myorg/myrepo --workflow "CI"
 
-        ci-failures --repo myorg/myrepo --pr 1234
+        jolt --repo myorg/myrepo --pr 1234
 
-        ci-failures -r myorg/myrepo -w "Build" -l 5
+        jolt -r myorg/myrepo -w "Build" -l 5
     """
     if not token:
         console.print(
