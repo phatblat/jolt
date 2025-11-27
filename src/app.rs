@@ -159,9 +159,14 @@ impl App {
                         KeyCode::Down => self.handle_down(),
                         KeyCode::Left => self.handle_left(),
                         KeyCode::Right => self.handle_right(),
+                        KeyCode::PageUp => self.handle_page_up(),
+                        KeyCode::PageDown => self.handle_page_down(),
+                        KeyCode::Home => self.handle_home(),
+                        KeyCode::End => self.handle_end(),
                         KeyCode::Enter => self.handle_enter().await,
                         KeyCode::Esc => self.handle_escape(),
                         KeyCode::Char('r') => self.handle_refresh().await,
+                        KeyCode::Char('/') => self.handle_search_start(),
                         _ => {}
                     }
                 }
@@ -199,6 +204,41 @@ impl App {
     fn handle_right(&mut self) {
         if self.active_tab == Tab::Workflows {
             self.workflows.scroll_right();
+        }
+    }
+
+    /// Handle Page Up key.
+    fn handle_page_up(&mut self) {
+        if self.active_tab == Tab::Workflows {
+            self.workflows.page_up();
+        }
+    }
+
+    /// Handle Page Down key.
+    fn handle_page_down(&mut self) {
+        if self.active_tab == Tab::Workflows {
+            self.workflows.page_down();
+        }
+    }
+
+    /// Handle Home key.
+    fn handle_home(&mut self) {
+        if self.active_tab == Tab::Workflows {
+            self.workflows.scroll_to_start();
+        }
+    }
+
+    /// Handle End key.
+    fn handle_end(&mut self) {
+        if self.active_tab == Tab::Workflows {
+            self.workflows.scroll_to_end();
+        }
+    }
+
+    /// Handle search start (/ key).
+    fn handle_search_start(&mut self) {
+        if self.active_tab == Tab::Workflows {
+            self.workflows.search_active = true;
         }
     }
 

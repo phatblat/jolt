@@ -40,7 +40,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     draw_content(frame, app, chunks[2]);
 
     // Status bar
-    draw_status_bar(frame, chunks[3]);
+    draw_status_bar(frame, app, chunks[3]);
 }
 
 /// Draw the main content area based on active tab.
@@ -89,10 +89,9 @@ fn draw_workflows_tab(frame: &mut Frame, app: &mut App, area: Rect) {
 
 /// Draw the log viewer.
 fn draw_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
-    let block = Block::default().borders(Borders::ALL).title(" Logs ");
-
     match &app.workflows.log_content {
         LoadingState::Idle => {
+            let block = Block::default().borders(Borders::ALL).title(" Logs ");
             let text = Paragraph::new("Press Enter to load logs")
                 .alignment(Alignment::Center)
                 .style(Style::default().fg(Color::DarkGray))
@@ -100,6 +99,7 @@ fn draw_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
             frame.render_widget(text, area);
         }
         LoadingState::Loading => {
+            let block = Block::default().borders(Borders::ALL).title(" Logs ");
             let text = Paragraph::new("⏳ Loading logs...")
                 .alignment(Alignment::Center)
                 .style(Style::default().fg(Color::Yellow))
@@ -107,6 +107,7 @@ fn draw_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
             frame.render_widget(text, area);
         }
         LoadingState::Error(e) => {
+            let block = Block::default().borders(Borders::ALL).title(" Logs ");
             let text = Paragraph::new(format!("❌ {}", e))
                 .alignment(Alignment::Center)
                 .style(Style::default().fg(Color::Red))
@@ -114,7 +115,36 @@ fn draw_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
             frame.render_widget(text, area);
         }
         LoadingState::Loaded(logs) => {
-            let text = Paragraph::new(logs.as_str())
+            let line_count = logs.lines().count();
+            let scroll_y = app.workflows.log_scroll_y as usize;
+
+            // Build title with line info
+            let title = format!(
+                " Logs [{}-{}/{}] ",
+                scroll_y + 1,
+                (scroll_y + area.height.saturating_sub(2) as usize).min(line_count),
+                line_count
+            );
+
+            let block = Block::default().borders(Borders::ALL).title(title);
+
+            // Add line numbers to each line
+            let numbered_lines: Vec<Line> = logs
+                .lines()
+                .enumerate()
+                .map(|(i, line)| {
+                    let line_num = i + 1;
+                    Line::from(vec![
+                        Span::styled(
+                            format!("{:>6} │ ", line_num),
+                            Style::default().fg(Color::DarkGray),
+                        ),
+                        Span::raw(line),
+                    ])
+                })
+                .collect();
+
+            let text = Paragraph::new(numbered_lines)
                 .block(block)
                 .scroll((app.workflows.log_scroll_y, app.workflows.log_scroll_x));
             frame.render_widget(text, area);
@@ -160,21 +190,41 @@ fn draw_console_tab(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 /// Draw the status bar with keybinding hints.
-fn draw_status_bar(frame: &mut Frame, area: Rect) {
-    let hints = vec![
-        Span::raw(" ↑↓ "),
-        Span::styled("Navigate", Style::default().fg(Color::DarkGray)),
-        Span::raw("  ↵ "),
-        Span::styled("Select", Style::default().fg(Color::DarkGray)),
-        Span::raw("  Esc "),
-        Span::styled("Back", Style::default().fg(Color::DarkGray)),
-        Span::raw("  Tab "),
-        Span::styled("Switch", Style::default().fg(Color::DarkGray)),
-        Span::raw("  r "),
-        Span::styled("Refresh", Style::default().fg(Color::DarkGray)),
-        Span::raw("  q "),
-        Span::styled("Quit", Style::default().fg(Color::DarkGray)),
-    ];
+fn draw_status_bar(frame: &mut Frame, app: &App, area: Rect) {
+    let in_logs = app.active_tab == Tab::Workflows
+        && matches!(app.workflows.nav.current(), ViewLevel::Logs { .. });
+
+    let hints = if in_logs {
+        vec![
+            Span::raw(" ↑↓←→ "),
+            Span::styled("Scroll", Style::default().fg(Color::DarkGray)),
+            Span::raw("  PgUp/Dn "),
+            Span::styled("Page", Style::default().fg(Color::DarkGray)),
+            Span::raw("  Home/End "),
+            Span::styled("Jump", Style::default().fg(Color::DarkGray)),
+            Span::raw("  Esc "),
+            Span::styled("Back", Style::default().fg(Color::DarkGray)),
+            Span::raw("  r "),
+            Span::styled("Refresh", Style::default().fg(Color::DarkGray)),
+            Span::raw("  q "),
+            Span::styled("Quit", Style::default().fg(Color::DarkGray)),
+        ]
+    } else {
+        vec![
+            Span::raw(" ↑↓ "),
+            Span::styled("Navigate", Style::default().fg(Color::DarkGray)),
+            Span::raw("  ↵ "),
+            Span::styled("Select", Style::default().fg(Color::DarkGray)),
+            Span::raw("  Esc "),
+            Span::styled("Back", Style::default().fg(Color::DarkGray)),
+            Span::raw("  Tab "),
+            Span::styled("Switch", Style::default().fg(Color::DarkGray)),
+            Span::raw("  r "),
+            Span::styled("Refresh", Style::default().fg(Color::DarkGray)),
+            Span::raw("  q "),
+            Span::styled("Quit", Style::default().fg(Color::DarkGray)),
+        ]
+    };
 
     let status = Paragraph::new(Line::from(hints));
     frame.render_widget(status, area);

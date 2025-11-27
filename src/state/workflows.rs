@@ -338,6 +338,39 @@ impl WorkflowsTabState {
         }
     }
 
+    /// Handle Page Up key (scroll logs by page).
+    pub fn page_up(&mut self) {
+        if matches!(self.nav.current(), ViewLevel::Logs { .. }) {
+            self.log_scroll_y = self.log_scroll_y.saturating_sub(20);
+        }
+    }
+
+    /// Handle Page Down key (scroll logs by page).
+    pub fn page_down(&mut self) {
+        if matches!(self.nav.current(), ViewLevel::Logs { .. }) {
+            self.log_scroll_y = self.log_scroll_y.saturating_add(20);
+        }
+    }
+
+    /// Scroll to start of logs.
+    pub fn scroll_to_start(&mut self) {
+        if matches!(self.nav.current(), ViewLevel::Logs { .. }) {
+            self.log_scroll_y = 0;
+            self.log_scroll_x = 0;
+        }
+    }
+
+    /// Scroll to end of logs.
+    #[allow(clippy::collapsible_if)]
+    pub fn scroll_to_end(&mut self) {
+        if matches!(self.nav.current(), ViewLevel::Logs { .. }) {
+            if let LoadingState::Loaded(logs) = &self.log_content {
+                let line_count = logs.lines().count() as u16;
+                self.log_scroll_y = line_count.saturating_sub(10);
+            }
+        }
+    }
+
     /// Clear current list data (for refresh).
     pub fn clear_current(&mut self) {
         match self.nav.current() {
