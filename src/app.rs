@@ -892,10 +892,10 @@ impl App {
         // Get selection range
         let (sel_start, sel_end) = self.workflows.log_selection_range();
 
-        // Check for existing duplicate session
-        if let Some(existing) = self.analyze.find_duplicate(job_id, run_id, sel_start, sel_end) {
+        // Check for existing session that overlaps with selected lines
+        if let Some(existing) = self.analyze.find_overlapping(job_id, run_id, sel_start, sel_end) {
             let session_id = existing.id.clone();
-            self.sync.log_info("Navigating to existing analysis session");
+            self.sync.log_info("Selection overlaps existing session - navigating");
             self.active_tab = Tab::Analyze;
             self.analyze.enter_detail_by_id(&session_id);
             return;
@@ -995,10 +995,10 @@ impl App {
         // Get selection range
         let (sel_start, sel_end) = self.runners.log_selection_range();
 
-        // Check for existing duplicate session
-        if let Some(existing) = self.analyze.find_duplicate(job_id, run_id, sel_start, sel_end) {
+        // Check for existing session that overlaps with selected lines
+        if let Some(existing) = self.analyze.find_overlapping(job_id, run_id, sel_start, sel_end) {
             let session_id = existing.id.clone();
-            self.sync.log_info("Navigating to existing analysis session");
+            self.sync.log_info("Selection overlaps existing session - navigating");
             self.active_tab = Tab::Analyze;
             self.analyze.enter_detail_by_id(&session_id);
             return;

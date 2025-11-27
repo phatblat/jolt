@@ -259,8 +259,8 @@ impl AnalyzeTabState {
         self.sessions.iter().find(|s| s.id == id)
     }
 
-    /// Find existing session matching job and line range.
-    pub fn find_duplicate(
+    /// Find session where any selected lines overlap with an existing session.
+    pub fn find_overlapping(
         &self,
         job_id: u64,
         run_id: u64,
@@ -270,9 +270,28 @@ impl AnalyzeTabState {
         self.sessions.iter().find(|s| {
             s.nav_context.job_id == job_id
                 && s.nav_context.run_id == run_id
-                && s.excerpt_start_line == start_line
-                && s.excerpt_end_line == end_line
+                && Self::ranges_overlap(
+                    start_line,
+                    end_line,
+                    s.excerpt_start_line,
+                    s.excerpt_end_line,
+                )
         })
+    }
+
+    /// Check if two line ranges overlap.
+    fn ranges_overlap(start1: usize, end1: usize, start2: usize, end2: usize) -> bool {
+        start1 <= end2 && start2 <= end1
+    }
+
+    /// Get all session line ranges for a specific job.
+    /// Returns Vec of (start_line, end_line, session_id) for decoration.
+    pub fn get_session_lines(&self, job_id: u64, run_id: u64) -> Vec<(usize, usize, String)> {
+        self.sessions
+            .iter()
+            .filter(|s| s.nav_context.job_id == job_id && s.nav_context.run_id == run_id)
+            .map(|s| (s.excerpt_start_line, s.excerpt_end_line, s.id.clone()))
+            .collect()
     }
 
     /// Enter detail view for a specific session by ID.

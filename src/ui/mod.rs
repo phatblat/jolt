@@ -260,6 +260,14 @@ fn draw_runners_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
             let (sel_start, sel_end) = app.runners.log_selection_range();
             let cursor_line = app.runners.log_selection_cursor;
 
+            // Get session lines for decoration
+            let session_lines = match app.runners.nav.current() {
+                RunnersViewLevel::Logs { job_id, run_id, .. } => {
+                    app.analyze.get_session_lines(*job_id, *run_id)
+                }
+                _ => Vec::new(),
+            };
+
             // Build title with line info and search match count
             let title = if !app.search_matches.is_empty() {
                 format!(
@@ -320,8 +328,21 @@ fn draw_runners_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
                         app.search_matches.get(app.search_match_index) == Some(&i);
                     let is_selected = i >= sel_start && i <= sel_end;
                     let is_cursor = i == cursor_line;
+                    // Check if line is part of an existing analysis session
+                    let is_in_session = session_lines
+                        .iter()
+                        .any(|(start, end, _)| i >= *start && i <= *end);
 
-                    // Determine line style: cursor > selection > search match > normal
+                    // Gutter markers: bookmark for selection, bar for existing sessions
+                    let gutter_marker = if is_selected || is_cursor {
+                        "🔖"
+                    } else if is_in_session {
+                        "▎ "
+                    } else {
+                        "  "
+                    };
+
+                    // Determine line style: cursor > selection > search match > session > normal
                     let (line_style, line_num_style) = if is_cursor {
                         (
                             Style::default().bg(Color::Blue).fg(Color::Black),
@@ -342,12 +363,24 @@ fn draw_runners_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
                             Style::default().bg(Color::DarkGray),
                             Style::default().fg(Color::DarkGray),
                         )
+                    } else if is_in_session {
+                        (
+                            Style::default(),
+                            Style::default().fg(Color::Magenta),
+                        )
                     } else {
                         (Style::default(), Style::default().fg(Color::DarkGray))
                     };
 
+                    let gutter_style = if is_in_session && !is_selected && !is_cursor {
+                        Style::default().fg(Color::Magenta)
+                    } else {
+                        Style::default()
+                    };
+
                     Line::from(vec![
-                        Span::styled(format!("{:>6} │ ", line_num), line_num_style),
+                        Span::styled(gutter_marker, gutter_style),
+                        Span::styled(format!("{:>5} │ ", line_num), line_num_style),
                         Span::styled(line, line_style),
                     ])
                 })
@@ -571,6 +604,14 @@ fn draw_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
             let (sel_start, sel_end) = app.workflows.log_selection_range();
             let cursor_line = app.workflows.log_selection_cursor;
 
+            // Get session lines for decoration
+            let session_lines = match app.workflows.nav.current() {
+                ViewLevel::Logs { job_id, run_id, .. } => {
+                    app.analyze.get_session_lines(*job_id, *run_id)
+                }
+                _ => Vec::new(),
+            };
+
             // Build title with line info and search match count
             let title = if !app.search_matches.is_empty() {
                 format!(
@@ -631,8 +672,21 @@ fn draw_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
                         app.search_matches.get(app.search_match_index) == Some(&i);
                     let is_selected = i >= sel_start && i <= sel_end;
                     let is_cursor = i == cursor_line;
+                    // Check if line is part of an existing analysis session
+                    let is_in_session = session_lines
+                        .iter()
+                        .any(|(start, end, _)| i >= *start && i <= *end);
 
-                    // Determine line style: cursor > selection > search match > normal
+                    // Gutter markers: bookmark for selection, bar for existing sessions
+                    let gutter_marker = if is_selected || is_cursor {
+                        "🔖"
+                    } else if is_in_session {
+                        "▎ "
+                    } else {
+                        "  "
+                    };
+
+                    // Determine line style: cursor > selection > search match > session > normal
                     let (line_style, line_num_style) = if is_cursor {
                         (
                             Style::default().bg(Color::Blue).fg(Color::Black),
@@ -653,12 +707,24 @@ fn draw_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
                             Style::default().bg(Color::DarkGray),
                             Style::default().fg(Color::DarkGray),
                         )
+                    } else if is_in_session {
+                        (
+                            Style::default(),
+                            Style::default().fg(Color::Magenta),
+                        )
                     } else {
                         (Style::default(), Style::default().fg(Color::DarkGray))
                     };
 
+                    let gutter_style = if is_in_session && !is_selected && !is_cursor {
+                        Style::default().fg(Color::Magenta)
+                    } else {
+                        Style::default()
+                    };
+
                     Line::from(vec![
-                        Span::styled(format!("{:>6} │ ", line_num), line_num_style),
+                        Span::styled(gutter_marker, gutter_style),
+                        Span::styled(format!("{:>5} │ ", line_num), line_num_style),
                         Span::styled(line, line_style),
                     ])
                 })
