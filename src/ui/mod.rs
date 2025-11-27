@@ -8,6 +8,7 @@ mod tabs;
 use ratatui::{prelude::*, widgets::*};
 
 use crate::app::{App, ConsoleLevel, Tab};
+use crate::github::RunConclusion;
 use crate::state::{LoadingState, RunnersViewLevel, ViewLevel};
 
 /// Main draw function that renders the entire UI.
@@ -132,17 +133,39 @@ fn draw_runners_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
         }
         LoadingState::Error(e) => {
             let block = Block::default().borders(Borders::ALL).title(" Logs ");
-            let lines = vec![
-                Line::from(Span::styled(
-                    format!("❌ {}", e),
-                    Style::default().fg(Color::Red),
-                )),
-                Line::from(""),
-                Line::from(Span::styled(
-                    "Press 'o' to view in browser",
-                    Style::default().fg(Color::DarkGray),
-                )),
-            ];
+            // Check if job was skipped
+            let is_skipped = matches!(
+                app.runners.nav.current(),
+                RunnersViewLevel::Logs {
+                    job_conclusion: Some(RunConclusion::Skipped),
+                    ..
+                }
+            );
+            let lines = if is_skipped {
+                vec![
+                    Line::from(Span::styled(
+                        "⏭️  This job was skipped",
+                        Style::default().fg(Color::Gray),
+                    )),
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        "Press 'o' to view in browser",
+                        Style::default().fg(Color::DarkGray),
+                    )),
+                ]
+            } else {
+                vec![
+                    Line::from(Span::styled(
+                        format!("❌ {}", e),
+                        Style::default().fg(Color::Red),
+                    )),
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        "Press 'o' to view in browser",
+                        Style::default().fg(Color::DarkGray),
+                    )),
+                ]
+            };
             let text = Paragraph::new(lines)
                 .alignment(Alignment::Center)
                 .block(block);
@@ -294,17 +317,39 @@ fn draw_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
         }
         LoadingState::Error(e) => {
             let block = Block::default().borders(Borders::ALL).title(" Logs ");
-            let lines = vec![
-                Line::from(Span::styled(
-                    format!("❌ {}", e),
-                    Style::default().fg(Color::Red),
-                )),
-                Line::from(""),
-                Line::from(Span::styled(
-                    "Press 'o' to view in browser",
-                    Style::default().fg(Color::DarkGray),
-                )),
-            ];
+            // Check if job was skipped
+            let is_skipped = matches!(
+                app.workflows.nav.current(),
+                ViewLevel::Logs {
+                    job_conclusion: Some(RunConclusion::Skipped),
+                    ..
+                }
+            );
+            let lines = if is_skipped {
+                vec![
+                    Line::from(Span::styled(
+                        "⏭️  This job was skipped",
+                        Style::default().fg(Color::Gray),
+                    )),
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        "Press 'o' to view in browser",
+                        Style::default().fg(Color::DarkGray),
+                    )),
+                ]
+            } else {
+                vec![
+                    Line::from(Span::styled(
+                        format!("❌ {}", e),
+                        Style::default().fg(Color::Red),
+                    )),
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        "Press 'o' to view in browser",
+                        Style::default().fg(Color::DarkGray),
+                    )),
+                ]
+            };
             let text = Paragraph::new(lines)
                 .alignment(Alignment::Center)
                 .block(block);

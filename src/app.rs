@@ -1007,6 +1007,7 @@ impl App {
                     run_id,
                     job_id: job.id,
                     job_name: job.name.clone(),
+                    job_conclusion: job.conclusion,
                 }),
             ViewLevel::Logs { .. } => None, // Can't drill down further
         };
@@ -1105,6 +1106,7 @@ impl App {
                     run_id,
                     job_id: job.id,
                     job_name: job.name.clone(),
+                    job_conclusion: job.conclusion,
                 }),
             RunnersViewLevel::Logs { .. } => None,
         };

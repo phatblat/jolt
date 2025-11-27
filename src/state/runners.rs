@@ -1,7 +1,7 @@
 // Runners tab state management.
 // Handles navigation and data for the runners tab.
 
-use crate::github::{Job, Repository, Runner, WorkflowRun};
+use crate::github::{Job, Repository, RunConclusion, Runner, WorkflowRun};
 
 use super::workflows::{LoadingState, SelectableList};
 
@@ -32,6 +32,7 @@ pub enum RunnersViewLevel {
         run_id: u64,
         job_id: u64,
         job_name: String,
+        job_conclusion: Option<RunConclusion>,
     },
 }
 
