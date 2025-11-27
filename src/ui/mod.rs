@@ -48,6 +48,11 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 
     // Status bar
     draw_status_bar(frame, app, chunks[3]);
+
+    // Help overlay (rendered last, on top of everything)
+    if app.show_help {
+        draw_help_overlay(frame);
+    }
 }
 
 /// Draw the main content area based on active tab.
@@ -279,14 +284,14 @@ fn draw_console_tab(frame: &mut Frame, app: &mut App, area: Rect) {
     }
 }
 
-/// Draw the status bar with keybinding hints.
+/// Draw the status bar with keybinding hints and rate limit.
 fn draw_status_bar(frame: &mut Frame, app: &App, area: Rect) {
     let in_logs = (app.active_tab == Tab::Workflows
         && matches!(app.workflows.nav.current(), ViewLevel::Logs { .. }))
         || (app.active_tab == Tab::Runners
             && matches!(app.runners.nav.current(), RunnersViewLevel::Logs { .. }));
 
-    let hints = if in_logs {
+    let mut hints = if in_logs {
         vec![
             Span::raw(" ↑↓←→ "),
             Span::styled("Scroll", Style::default().fg(Color::DarkGray)),
@@ -298,6 +303,8 @@ fn draw_status_bar(frame: &mut Frame, app: &App, area: Rect) {
             Span::styled("Back", Style::default().fg(Color::DarkGray)),
             Span::raw("  r "),
             Span::styled("Refresh", Style::default().fg(Color::DarkGray)),
+            Span::raw("  ? "),
+            Span::styled("Help", Style::default().fg(Color::DarkGray)),
             Span::raw("  q "),
             Span::styled("Quit", Style::default().fg(Color::DarkGray)),
         ]
@@ -313,11 +320,117 @@ fn draw_status_bar(frame: &mut Frame, app: &App, area: Rect) {
             Span::styled("Switch", Style::default().fg(Color::DarkGray)),
             Span::raw("  r "),
             Span::styled("Refresh", Style::default().fg(Color::DarkGray)),
+            Span::raw("  ? "),
+            Span::styled("Help", Style::default().fg(Color::DarkGray)),
             Span::raw("  q "),
             Span::styled("Quit", Style::default().fg(Color::DarkGray)),
         ]
     };
 
+    // Add rate limit info on the right if available
+    if let Some(client) = &app.github_client {
+        let rate = client.rate_limit();
+        let rate_color = if rate.remaining < 100 {
+            Color::Red
+        } else if rate.remaining < 500 {
+            Color::Yellow
+        } else {
+            Color::DarkGray
+        };
+        hints.push(Span::styled(
+            format!("  API: {}/{}", rate.remaining, rate.limit),
+            Style::default().fg(rate_color),
+        ));
+    }
+
     let status = Paragraph::new(Line::from(hints));
     frame.render_widget(status, area);
+}
+
+/// Draw the help overlay.
+fn draw_help_overlay(frame: &mut Frame) {
+    let area = frame.area();
+
+    // Create a centered popup
+    let popup_width = 50;
+    let popup_height = 18;
+    let popup_x = (area.width.saturating_sub(popup_width)) / 2;
+    let popup_y = (area.height.saturating_sub(popup_height)) / 2;
+
+    let popup_area = Rect::new(popup_x, popup_y, popup_width, popup_height);
+
+    // Clear the area behind the popup
+    frame.render_widget(Clear, popup_area);
+
+    let help_text = vec![
+        Line::from(vec![Span::styled(
+            "Keyboard Shortcuts",
+            Style::default().add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  ↑/↓       ", Style::default().fg(Color::Cyan)),
+            Span::raw("Navigate list / scroll logs"),
+        ]),
+        Line::from(vec![
+            Span::styled("  ←/→       ", Style::default().fg(Color::Cyan)),
+            Span::raw("Horizontal scroll (logs)"),
+        ]),
+        Line::from(vec![
+            Span::styled("  Enter     ", Style::default().fg(Color::Cyan)),
+            Span::raw("Select / drill down"),
+        ]),
+        Line::from(vec![
+            Span::styled("  Esc       ", Style::default().fg(Color::Cyan)),
+            Span::raw("Go back / close help"),
+        ]),
+        Line::from(vec![
+            Span::styled("  Tab       ", Style::default().fg(Color::Cyan)),
+            Span::raw("Switch tabs"),
+        ]),
+        Line::from(vec![
+            Span::styled("  PgUp/PgDn ", Style::default().fg(Color::Cyan)),
+            Span::raw("Page scroll (logs)"),
+        ]),
+        Line::from(vec![
+            Span::styled("  Home/End  ", Style::default().fg(Color::Cyan)),
+            Span::raw("Jump to start/end (logs)"),
+        ]),
+        Line::from(vec![
+            Span::styled("  r         ", Style::default().fg(Color::Cyan)),
+            Span::raw("Refresh current view"),
+        ]),
+        Line::from(vec![
+            Span::styled("  ?         ", Style::default().fg(Color::Cyan)),
+            Span::raw("Show/hide this help"),
+        ]),
+        Line::from(vec![
+            Span::styled("  q         ", Style::default().fg(Color::Cyan)),
+            Span::raw("Quit"),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("Press ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Esc", Style::default().fg(Color::Yellow)),
+            Span::styled(" or ", Style::default().fg(Color::DarkGray)),
+            Span::styled("?", Style::default().fg(Color::Yellow)),
+            Span::styled(" to close", Style::default().fg(Color::DarkGray)),
+        ]),
+    ];
+
+    let help_paragraph = Paragraph::new(help_text)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan))
+                .title(" Help ")
+                .title_style(
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
+        )
+        .alignment(Alignment::Left);
+
+    frame.render_widget(help_paragraph, popup_area);
 }

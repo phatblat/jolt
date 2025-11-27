@@ -7,13 +7,15 @@ use std::time::Duration;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::prelude::*;
 use ratatui::widgets::ListState;
+use serde::{Deserialize, Serialize};
 
+use crate::cache;
 use crate::github::GitHubClient;
 use crate::state::{LoadingState, RunnersTabState, RunnersViewLevel, ViewLevel, WorkflowsTabState};
 use crate::ui;
 
 /// Active tab in the application.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum Tab {
     Runners,
     #[default]
@@ -88,6 +90,40 @@ impl ConsoleMessage {
     }
 }
 
+/// Persisted application state saved between sessions.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PersistedState {
+    /// Last active tab.
+    pub active_tab: Tab,
+}
+
+impl PersistedState {
+    /// Load persisted state from disk.
+    #[allow(clippy::collapsible_if)]
+    pub fn load() -> Self {
+        if let Some(path) = cache::state_path() {
+            if let Ok(contents) = std::fs::read_to_string(&path) {
+                if let Ok(state) = serde_json::from_str(&contents) {
+                    return state;
+                }
+            }
+        }
+        Self::default()
+    }
+
+    /// Save persisted state to disk.
+    pub fn save(&self) {
+        if let Some(path) = cache::state_path() {
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            if let Ok(json) = serde_json::to_string_pretty(self) {
+                let _ = std::fs::write(&path, json);
+            }
+        }
+    }
+}
+
 /// Main application state.
 pub struct App {
     /// Currently active tab.
@@ -100,6 +136,8 @@ pub struct App {
     pub console_list_state: ListState,
     /// Whether the app should exit.
     pub should_quit: bool,
+    /// Whether to show the help overlay.
+    pub show_help: bool,
     /// GitHub API client (None if no token).
     pub github_client: Option<GitHubClient>,
     /// Workflows tab state.
@@ -110,6 +148,9 @@ pub struct App {
 
 impl App {
     pub fn new() -> Self {
+        // Load persisted state from previous session
+        let persisted = PersistedState::load();
+
         // Try to create GitHub client from env
         let github_client = match GitHubClient::from_env() {
             Ok(client) => Some(client),
@@ -121,26 +162,38 @@ impl App {
         };
 
         Self {
-            active_tab: Tab::default(),
+            active_tab: persisted.active_tab,
             console_unread: 0,
             console_messages: Vec::new(),
             console_list_state: ListState::default(),
             should_quit: false,
+            show_help: false,
             github_client,
             workflows: WorkflowsTabState::new(),
             runners: RunnersTabState::new(),
         }
     }
 
+    /// Save application state for next session.
+    pub fn save_state(&self) {
+        let state = PersistedState {
+            active_tab: self.active_tab,
+        };
+        state.save();
+    }
+
     /// Main event loop.
     pub async fn run(&mut self, terminal: &mut Terminal<impl Backend>) -> io::Result<()> {
-        // Initial data load for workflows tab
+        // Initial data load for active tab
         self.load_current_view().await;
 
         while !self.should_quit {
             terminal.draw(|frame| ui::draw(frame, self))?;
             self.handle_events().await?;
         }
+
+        // Save state for next session
+        self.save_state();
         Ok(())
     }
 
@@ -150,8 +203,20 @@ impl App {
         if event::poll(Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
+                    // When help is shown, only handle close keys
+                    if self.show_help {
+                        match key.code {
+                            KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') => {
+                                self.show_help = false;
+                            }
+                            _ => {}
+                        }
+                        return Ok(());
+                    }
+
                     match key.code {
                         KeyCode::Char('q') => self.should_quit = true,
+                        KeyCode::Char('?') => self.show_help = true,
                         KeyCode::Tab => {
                             self.active_tab = self.active_tab.next();
                             self.clear_console_badge_if_viewing();
