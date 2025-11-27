@@ -5,6 +5,7 @@ mod app;
 mod cache;
 mod error;
 mod github;
+mod state;
 mod ui;
 
 use std::io;
@@ -18,7 +19,8 @@ use ratatui::prelude::*;
 
 use app::App;
 
-fn main() -> io::Result<()> {
+#[tokio::main]
+async fn main() -> io::Result<()> {
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -28,7 +30,7 @@ fn main() -> io::Result<()> {
 
     // Create app and run it
     let mut app = App::new();
-    let result = app.run(&mut terminal);
+    let result = app.run(&mut terminal).await;
 
     // Restore terminal
     disable_raw_mode()?;
