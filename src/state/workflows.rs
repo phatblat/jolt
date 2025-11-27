@@ -220,6 +220,10 @@ pub struct WorkflowsTabState {
     pub log_scroll_x: u16,
     /// Vertical scroll offset for log viewer.
     pub log_scroll_y: u16,
+    /// Selection anchor line in log viewer (0-indexed).
+    pub log_selection_anchor: usize,
+    /// Selection cursor line in log viewer (0-indexed).
+    pub log_selection_cursor: usize,
 }
 
 impl Default for WorkflowsTabState {
@@ -234,6 +238,8 @@ impl Default for WorkflowsTabState {
             log_content: LoadingState::Idle,
             log_scroll_x: 0,
             log_scroll_y: 0,
+            log_selection_anchor: 0,
+            log_selection_cursor: 0,
         }
     }
 }
@@ -283,6 +289,8 @@ impl WorkflowsTabState {
                     self.log_content = LoadingState::Idle;
                     self.log_scroll_x = 0;
                     self.log_scroll_y = 0;
+                    self.log_selection_anchor = 0;
+                    self.log_selection_cursor = 0;
                 }
                 ViewLevel::Owners => {}
             }
@@ -377,6 +385,80 @@ impl WorkflowsTabState {
                 self.log_content = LoadingState::Idle;
                 self.log_scroll_x = 0;
                 self.log_scroll_y = 0;
+                self.log_selection_anchor = 0;
+                self.log_selection_cursor = 0;
+            }
+        }
+    }
+
+    /// Get the current selection range (start, end) as 0-indexed line numbers.
+    pub fn log_selection_range(&self) -> (usize, usize) {
+        let start = self.log_selection_anchor.min(self.log_selection_cursor);
+        let end = self.log_selection_anchor.max(self.log_selection_cursor);
+        (start, end)
+    }
+
+    /// Move selection cursor up (with optional extend for shift+up).
+    pub fn selection_up(&mut self, extend: bool) {
+        if let LoadingState::Loaded(_) = &self.log_content {
+            if self.log_selection_cursor > 0 {
+                self.log_selection_cursor -= 1;
+                if !extend {
+                    self.log_selection_anchor = self.log_selection_cursor;
+                }
+            }
+        }
+    }
+
+    /// Move selection cursor down (with optional extend for shift+down).
+    pub fn selection_down(&mut self, extend: bool) {
+        if let LoadingState::Loaded(logs) = &self.log_content {
+            let max_line = logs.lines().count().saturating_sub(1);
+            if self.log_selection_cursor < max_line {
+                self.log_selection_cursor += 1;
+                if !extend {
+                    self.log_selection_anchor = self.log_selection_cursor;
+                }
+            }
+        }
+    }
+
+    /// Move selection to start of file.
+    pub fn selection_to_start(&mut self, extend: bool) {
+        self.log_selection_cursor = 0;
+        if !extend {
+            self.log_selection_anchor = 0;
+        }
+    }
+
+    /// Move selection to end of file.
+    pub fn selection_to_end(&mut self, extend: bool) {
+        if let LoadingState::Loaded(logs) = &self.log_content {
+            let max_line = logs.lines().count().saturating_sub(1);
+            self.log_selection_cursor = max_line;
+            if !extend {
+                self.log_selection_anchor = max_line;
+            }
+        }
+    }
+
+    /// Move selection up by a page.
+    pub fn selection_page_up(&mut self, extend: bool) {
+        if let LoadingState::Loaded(_) = &self.log_content {
+            self.log_selection_cursor = self.log_selection_cursor.saturating_sub(20);
+            if !extend {
+                self.log_selection_anchor = self.log_selection_cursor;
+            }
+        }
+    }
+
+    /// Move selection down by a page.
+    pub fn selection_page_down(&mut self, extend: bool) {
+        if let LoadingState::Loaded(logs) = &self.log_content {
+            let max_line = logs.lines().count().saturating_sub(1);
+            self.log_selection_cursor = (self.log_selection_cursor + 20).min(max_line);
+            if !extend {
+                self.log_selection_anchor = self.log_selection_cursor;
             }
         }
     }

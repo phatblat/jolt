@@ -1,7 +1,7 @@
 // App state and main event loop.
 // Manages tabs, navigation state, and keyboard input handling.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io;
 use std::time::Duration;
 
@@ -94,6 +94,17 @@ impl ConsoleMessage {
     }
 }
 
+/// Saved view state for a log file.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct LogViewState {
+    /// Selection anchor line (0-indexed).
+    pub selection_anchor: usize,
+    /// Selection cursor line (0-indexed).
+    pub selection_cursor: usize,
+    /// Vertical scroll position.
+    pub scroll_y: u16,
+}
+
 /// Persisted application state saved between sessions.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PersistedState {
@@ -105,6 +116,9 @@ pub struct PersistedState {
     /// Runners tab navigation stack.
     #[serde(default)]
     pub runners_nav: Option<RunnersNavStack>,
+    /// Per-log view state, keyed by job_id.
+    #[serde(default)]
+    pub log_view_states: HashMap<u64, LogViewState>,
     /// Favorite owners (by login).
     #[serde(default)]
     pub favorite_owners: HashSet<String>,
@@ -174,6 +188,8 @@ pub struct App {
     pub workflows: WorkflowsTabState,
     /// Runners tab state.
     pub runners: RunnersTabState,
+    /// Per-log view states, keyed by job_id.
+    pub log_view_states: HashMap<u64, LogViewState>,
     /// Favorite owners.
     pub favorite_owners: HashSet<String>,
     /// Favorite repositories.
@@ -204,9 +220,26 @@ impl App {
         if let Some(nav) = persisted.workflows_nav {
             workflows.nav = nav;
         }
+
         let mut runners = RunnersTabState::new();
         if let Some(nav) = persisted.runners_nav {
             runners.nav = nav;
+        }
+
+        // Restore log view state for current job if viewing logs
+        if let ViewLevel::Logs { job_id, .. } = workflows.nav.current() {
+            if let Some(state) = persisted.log_view_states.get(job_id) {
+                workflows.log_selection_anchor = state.selection_anchor;
+                workflows.log_selection_cursor = state.selection_cursor;
+                workflows.log_scroll_y = state.scroll_y;
+            }
+        }
+        if let RunnersViewLevel::Logs { job_id, .. } = runners.nav.current() {
+            if let Some(state) = persisted.log_view_states.get(job_id) {
+                runners.log_selection_anchor = state.selection_anchor;
+                runners.log_selection_cursor = state.selection_cursor;
+                runners.log_scroll_y = state.scroll_y;
+            }
         }
 
         Self {
@@ -223,6 +256,7 @@ impl App {
             github_client,
             workflows,
             runners,
+            log_view_states: persisted.log_view_states,
             favorite_owners: persisted.favorite_owners,
             favorite_repos: persisted.favorite_repos,
             favorite_workflows: persisted.favorite_workflows,
@@ -232,16 +266,94 @@ impl App {
 
     /// Save application state for next session.
     pub fn save_state(&self) {
+        // Save current log view state to the map
+        let mut log_view_states = self.log_view_states.clone();
+
+        // Save workflows log state if viewing logs
+        if let ViewLevel::Logs { job_id, .. } = self.workflows.nav.current() {
+            log_view_states.insert(
+                *job_id,
+                LogViewState {
+                    selection_anchor: self.workflows.log_selection_anchor,
+                    selection_cursor: self.workflows.log_selection_cursor,
+                    scroll_y: self.workflows.log_scroll_y,
+                },
+            );
+        }
+
+        // Save runners log state if viewing logs
+        if let RunnersViewLevel::Logs { job_id, .. } = self.runners.nav.current() {
+            log_view_states.insert(
+                *job_id,
+                LogViewState {
+                    selection_anchor: self.runners.log_selection_anchor,
+                    selection_cursor: self.runners.log_selection_cursor,
+                    scroll_y: self.runners.log_scroll_y,
+                },
+            );
+        }
+
         let state = PersistedState {
             active_tab: self.active_tab,
             workflows_nav: Some(self.workflows.nav.clone()),
             runners_nav: Some(self.runners.nav.clone()),
+            log_view_states,
             favorite_owners: self.favorite_owners.clone(),
             favorite_repos: self.favorite_repos.clone(),
             favorite_workflows: self.favorite_workflows.clone(),
             favorite_runners: self.favorite_runners.clone(),
         };
         state.save();
+    }
+
+    /// Save current log view state for the active job.
+    fn save_current_log_state(&mut self) {
+        match self.active_tab {
+            Tab::Workflows => {
+                if let ViewLevel::Logs { job_id, .. } = self.workflows.nav.current() {
+                    self.log_view_states.insert(
+                        *job_id,
+                        LogViewState {
+                            selection_anchor: self.workflows.log_selection_anchor,
+                            selection_cursor: self.workflows.log_selection_cursor,
+                            scroll_y: self.workflows.log_scroll_y,
+                        },
+                    );
+                }
+            }
+            Tab::Runners => {
+                if let RunnersViewLevel::Logs { job_id, .. } = self.runners.nav.current() {
+                    self.log_view_states.insert(
+                        *job_id,
+                        LogViewState {
+                            selection_anchor: self.runners.log_selection_anchor,
+                            selection_cursor: self.runners.log_selection_cursor,
+                            scroll_y: self.runners.log_scroll_y,
+                        },
+                    );
+                }
+            }
+            Tab::Console => {}
+        }
+    }
+
+    /// Restore log view state for a job if previously saved.
+    fn restore_log_state(&mut self, job_id: u64) {
+        if let Some(state) = self.log_view_states.get(&job_id) {
+            match self.active_tab {
+                Tab::Workflows => {
+                    self.workflows.log_selection_anchor = state.selection_anchor;
+                    self.workflows.log_selection_cursor = state.selection_cursor;
+                    self.workflows.log_scroll_y = state.scroll_y;
+                }
+                Tab::Runners => {
+                    self.runners.log_selection_anchor = state.selection_anchor;
+                    self.runners.log_selection_cursor = state.selection_cursor;
+                    self.runners.log_scroll_y = state.scroll_y;
+                }
+                Tab::Console => {}
+            }
+        }
     }
 
     /// Main event loop.
@@ -301,15 +413,19 @@ impl App {
 
                     // Handle Ctrl modifier keys first
                     if key.modifiers.contains(KeyModifiers::CONTROL) {
+                        let shift_held = key.modifiers.contains(KeyModifiers::SHIFT);
                         match key.code {
-                            KeyCode::Char('d') => self.handle_page_down(),
-                            KeyCode::Char('u') => self.handle_page_up(),
-                            KeyCode::Char('f') => self.handle_page_down(),
-                            KeyCode::Char('b') => self.handle_page_up(),
+                            KeyCode::Char('d') => self.handle_page_down(shift_held),
+                            KeyCode::Char('u') => self.handle_page_up(shift_held),
+                            KeyCode::Char('f') => self.handle_page_down(shift_held),
+                            KeyCode::Char('b') => self.handle_page_up(shift_held),
                             _ => {}
                         }
                         return Ok(());
                     }
+
+                    // Check if shift is held for selection extension
+                    let shift_held = key.modifiers.contains(KeyModifiers::SHIFT);
 
                     match key.code {
                         KeyCode::Char('q') => self.should_quit = true,
@@ -341,23 +457,25 @@ impl App {
                             self.on_tab_change().await;
                         }
                         // Arrow keys
-                        KeyCode::Up => self.handle_up(),
-                        KeyCode::Down => self.handle_down(),
+                        KeyCode::Up => self.handle_up(shift_held),
+                        KeyCode::Down => self.handle_down(shift_held),
                         KeyCode::Left => self.handle_left(),
                         KeyCode::Right => self.handle_right(),
                         // Vim navigation
-                        KeyCode::Char('k') => self.handle_up(),
-                        KeyCode::Char('j') => self.handle_down(),
+                        KeyCode::Char('k') => self.handle_up(shift_held),
+                        KeyCode::Char('j') => self.handle_down(shift_held),
+                        KeyCode::Char('K') => self.handle_up(true), // Uppercase extends selection
+                        KeyCode::Char('J') => self.handle_down(true), // Uppercase extends selection
                         KeyCode::Char('h') => self.handle_left(),
                         KeyCode::Char('l') => self.handle_right(),
                         // Page navigation
-                        KeyCode::PageUp => self.handle_page_up(),
-                        KeyCode::PageDown => self.handle_page_down(),
+                        KeyCode::PageUp => self.handle_page_up(shift_held),
+                        KeyCode::PageDown => self.handle_page_down(shift_held),
                         // Jump to start/end
-                        KeyCode::Home => self.handle_home(),
-                        KeyCode::End => self.handle_end(),
-                        KeyCode::Char('g') => self.handle_home(),
-                        KeyCode::Char('G') => self.handle_end(),
+                        KeyCode::Home => self.handle_home(shift_held),
+                        KeyCode::End => self.handle_end(shift_held),
+                        KeyCode::Char('g') => self.handle_home(shift_held),
+                        KeyCode::Char('G') => self.handle_end(shift_held),
                         // Actions
                         KeyCode::Enter => self.handle_enter().await,
                         KeyCode::Esc => self.handle_escape().await,
@@ -377,19 +495,47 @@ impl App {
     }
 
     /// Handle up arrow key.
-    fn handle_up(&mut self) {
+    fn handle_up(&mut self, shift_held: bool) {
         match self.active_tab {
-            Tab::Workflows => self.workflows.select_prev(),
-            Tab::Runners => self.runners.select_prev(),
+            Tab::Workflows => {
+                if matches!(self.workflows.nav.current(), ViewLevel::Logs { .. }) {
+                    self.workflows.selection_up(shift_held);
+                    self.scroll_to_selection();
+                } else {
+                    self.workflows.select_prev();
+                }
+            }
+            Tab::Runners => {
+                if matches!(self.runners.nav.current(), RunnersViewLevel::Logs { .. }) {
+                    self.runners.selection_up(shift_held);
+                    self.scroll_to_selection();
+                } else {
+                    self.runners.select_prev();
+                }
+            }
             Tab::Console => self.console_select_prev(),
         }
     }
 
     /// Handle down arrow key.
-    fn handle_down(&mut self) {
+    fn handle_down(&mut self, shift_held: bool) {
         match self.active_tab {
-            Tab::Workflows => self.workflows.select_next(),
-            Tab::Runners => self.runners.select_next(),
+            Tab::Workflows => {
+                if matches!(self.workflows.nav.current(), ViewLevel::Logs { .. }) {
+                    self.workflows.selection_down(shift_held);
+                    self.scroll_to_selection();
+                } else {
+                    self.workflows.select_next();
+                }
+            }
+            Tab::Runners => {
+                if matches!(self.runners.nav.current(), RunnersViewLevel::Logs { .. }) {
+                    self.runners.selection_down(shift_held);
+                    self.scroll_to_selection();
+                } else {
+                    self.runners.select_next();
+                }
+            }
             Tab::Console => self.console_select_next(),
         }
     }
@@ -413,37 +559,93 @@ impl App {
     }
 
     /// Handle Page Up key.
-    fn handle_page_up(&mut self) {
+    fn handle_page_up(&mut self, shift_held: bool) {
         match self.active_tab {
-            Tab::Workflows => self.workflows.page_up(),
-            Tab::Runners => self.runners.page_up(),
+            Tab::Workflows => {
+                if matches!(self.workflows.nav.current(), ViewLevel::Logs { .. }) {
+                    self.workflows.selection_page_up(shift_held);
+                    self.scroll_to_selection();
+                } else {
+                    self.workflows.page_up();
+                }
+            }
+            Tab::Runners => {
+                if matches!(self.runners.nav.current(), RunnersViewLevel::Logs { .. }) {
+                    self.runners.selection_page_up(shift_held);
+                    self.scroll_to_selection();
+                } else {
+                    self.runners.page_up();
+                }
+            }
             Tab::Console => {}
         }
     }
 
     /// Handle Page Down key.
-    fn handle_page_down(&mut self) {
+    fn handle_page_down(&mut self, shift_held: bool) {
         match self.active_tab {
-            Tab::Workflows => self.workflows.page_down(),
-            Tab::Runners => self.runners.page_down(),
+            Tab::Workflows => {
+                if matches!(self.workflows.nav.current(), ViewLevel::Logs { .. }) {
+                    self.workflows.selection_page_down(shift_held);
+                    self.scroll_to_selection();
+                } else {
+                    self.workflows.page_down();
+                }
+            }
+            Tab::Runners => {
+                if matches!(self.runners.nav.current(), RunnersViewLevel::Logs { .. }) {
+                    self.runners.selection_page_down(shift_held);
+                    self.scroll_to_selection();
+                } else {
+                    self.runners.page_down();
+                }
+            }
             Tab::Console => {}
         }
     }
 
     /// Handle Home key.
-    fn handle_home(&mut self) {
+    fn handle_home(&mut self, shift_held: bool) {
         match self.active_tab {
-            Tab::Workflows => self.workflows.scroll_to_start(),
-            Tab::Runners => self.runners.scroll_to_start(),
+            Tab::Workflows => {
+                if matches!(self.workflows.nav.current(), ViewLevel::Logs { .. }) {
+                    self.workflows.selection_to_start(shift_held);
+                    self.scroll_to_selection();
+                } else {
+                    self.workflows.scroll_to_start();
+                }
+            }
+            Tab::Runners => {
+                if matches!(self.runners.nav.current(), RunnersViewLevel::Logs { .. }) {
+                    self.runners.selection_to_start(shift_held);
+                    self.scroll_to_selection();
+                } else {
+                    self.runners.scroll_to_start();
+                }
+            }
             Tab::Console => {}
         }
     }
 
     /// Handle End key.
-    fn handle_end(&mut self) {
+    fn handle_end(&mut self, shift_held: bool) {
         match self.active_tab {
-            Tab::Workflows => self.workflows.scroll_to_end(),
-            Tab::Runners => self.runners.scroll_to_end(),
+            Tab::Workflows => {
+                if matches!(self.workflows.nav.current(), ViewLevel::Logs { .. }) {
+                    self.workflows.selection_to_end(shift_held);
+                    self.scroll_to_selection();
+                } else {
+                    self.workflows.scroll_to_end();
+                }
+            }
+            Tab::Runners => {
+                if matches!(self.runners.nav.current(), RunnersViewLevel::Logs { .. }) {
+                    self.runners.selection_to_end(shift_held);
+                    self.scroll_to_selection();
+                } else {
+                    self.runners.scroll_to_end();
+                }
+            }
             Tab::Console => {}
         }
     }
@@ -539,6 +741,39 @@ impl App {
                 }
                 Tab::Console => {}
             }
+        }
+    }
+
+    /// Scroll log view to keep selection cursor visible.
+    fn scroll_to_selection(&mut self) {
+        // Approximate visible lines (will be refined when we have actual area height)
+        const VISIBLE_LINES: u16 = 20;
+
+        match self.active_tab {
+            Tab::Workflows => {
+                let cursor = self.workflows.log_selection_cursor as u16;
+                let scroll_y = self.workflows.log_scroll_y;
+
+                // Scroll up if cursor is above visible area
+                if cursor < scroll_y {
+                    self.workflows.log_scroll_y = cursor;
+                }
+                // Scroll down if cursor is below visible area
+                else if cursor >= scroll_y + VISIBLE_LINES {
+                    self.workflows.log_scroll_y = cursor.saturating_sub(VISIBLE_LINES - 1);
+                }
+            }
+            Tab::Runners => {
+                let cursor = self.runners.log_selection_cursor as u16;
+                let scroll_y = self.runners.log_scroll_y;
+
+                if cursor < scroll_y {
+                    self.runners.log_scroll_y = cursor;
+                } else if cursor >= scroll_y + VISIBLE_LINES {
+                    self.runners.log_scroll_y = cursor.saturating_sub(VISIBLE_LINES - 1);
+                }
+            }
+            Tab::Console => {}
         }
     }
 
@@ -1035,7 +1270,19 @@ impl App {
         };
 
         if let Some(level) = next_level {
+            // Check if entering logs and restore saved state
+            let job_id_to_restore = if let ViewLevel::Logs { job_id, .. } = &level {
+                Some(*job_id)
+            } else {
+                None
+            };
+
             self.workflows.nav.push(level);
+
+            if let Some(job_id) = job_id_to_restore {
+                self.restore_log_state(job_id);
+            }
+
             self.load_current_view().await;
         }
     }
@@ -1135,13 +1382,28 @@ impl App {
         };
 
         if let Some(level) = next_level {
+            // Check if entering logs and restore saved state
+            let job_id_to_restore = if let RunnersViewLevel::Logs { job_id, .. } = &level {
+                Some(*job_id)
+            } else {
+                None
+            };
+
             self.runners.nav.push(level);
+
+            if let Some(job_id) = job_id_to_restore {
+                self.restore_log_state(job_id);
+            }
+
             self.load_runners_view().await;
         }
     }
 
     /// Handle Escape key (go back).
     async fn handle_escape(&mut self) {
+        // Save log state before navigating away
+        self.save_current_log_state();
+
         match self.active_tab {
             Tab::Workflows => {
                 if self.workflows.go_back() {

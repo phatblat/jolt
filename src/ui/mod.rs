@@ -256,6 +256,8 @@ fn draw_runners_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
         LoadingState::Loaded(logs) => {
             let line_count = logs.lines().count();
             let scroll_y = app.runners.log_scroll_y as usize;
+            let (sel_start, sel_end) = app.runners.log_selection_range();
+            let cursor_line = app.runners.log_selection_cursor;
 
             // Build title with line info and search match count
             let title = if !app.search_matches.is_empty() {
@@ -276,9 +278,25 @@ fn draw_runners_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
                 )
             };
 
-            let block = Block::default().borders(Borders::ALL).title(title);
+            // Build selection status for bottom bar
+            let selection_count = sel_end - sel_start + 1;
+            let selection_status = if selection_count > 1 {
+                format!(
+                    " Sel: {}-{} ({} lines) ",
+                    sel_start + 1,
+                    sel_end + 1,
+                    selection_count
+                )
+            } else {
+                format!(" Line {} ", cursor_line + 1)
+            };
 
-            // Add line numbers and highlight matching lines
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .title(title)
+                .title_bottom(Line::from(selection_status).centered());
+
+            // Add line numbers and highlight matching/selected lines
             let query_lower = app.search_query.to_lowercase();
             let numbered_lines: Vec<Line> = logs
                 .lines()
@@ -289,20 +307,36 @@ fn draw_runners_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
                         !query_lower.is_empty() && line.to_lowercase().contains(&query_lower);
                     let is_current_match =
                         app.search_matches.get(app.search_match_index) == Some(&i);
+                    let is_selected = i >= sel_start && i <= sel_end;
+                    let is_cursor = i == cursor_line;
 
-                    let line_style = if is_current_match {
-                        Style::default().bg(Color::Yellow).fg(Color::Black)
+                    // Determine line style: cursor > selection > search match > normal
+                    let (line_style, line_num_style) = if is_cursor {
+                        (
+                            Style::default().bg(Color::Blue).fg(Color::White),
+                            Style::default().bg(Color::Blue).fg(Color::White),
+                        )
+                    } else if is_selected {
+                        (
+                            Style::default().bg(Color::DarkGray).fg(Color::White),
+                            Style::default().bg(Color::DarkGray).fg(Color::White),
+                        )
+                    } else if is_current_match {
+                        (
+                            Style::default().bg(Color::Yellow).fg(Color::Black),
+                            Style::default().fg(Color::DarkGray),
+                        )
                     } else if is_match {
-                        Style::default().bg(Color::DarkGray)
+                        (
+                            Style::default().bg(Color::DarkGray),
+                            Style::default().fg(Color::DarkGray),
+                        )
                     } else {
-                        Style::default()
+                        (Style::default(), Style::default().fg(Color::DarkGray))
                     };
 
                     Line::from(vec![
-                        Span::styled(
-                            format!("{:>6} │ ", line_num),
-                            Style::default().fg(Color::DarkGray),
-                        ),
+                        Span::styled(format!("{:>6} │ ", line_num), line_num_style),
                         Span::styled(line, line_style),
                     ])
                 })
@@ -523,6 +557,8 @@ fn draw_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
         LoadingState::Loaded(logs) => {
             let line_count = logs.lines().count();
             let scroll_y = app.workflows.log_scroll_y as usize;
+            let (sel_start, sel_end) = app.workflows.log_selection_range();
+            let cursor_line = app.workflows.log_selection_cursor;
 
             // Build title with line info and search match count
             let title = if !app.search_matches.is_empty() {
@@ -543,9 +579,25 @@ fn draw_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
                 )
             };
 
-            let block = Block::default().borders(Borders::ALL).title(title);
+            // Build selection status for bottom bar
+            let selection_count = sel_end - sel_start + 1;
+            let selection_status = if selection_count > 1 {
+                format!(
+                    " Sel: {}-{} ({} lines) ",
+                    sel_start + 1,
+                    sel_end + 1,
+                    selection_count
+                )
+            } else {
+                format!(" Line {} ", cursor_line + 1)
+            };
 
-            // Add line numbers and highlight matching lines
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .title(title)
+                .title_bottom(Line::from(selection_status).centered());
+
+            // Add line numbers and highlight matching/selected lines
             let query_lower = app.search_query.to_lowercase();
             let numbered_lines: Vec<Line> = logs
                 .lines()
@@ -556,20 +608,36 @@ fn draw_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
                         !query_lower.is_empty() && line.to_lowercase().contains(&query_lower);
                     let is_current_match =
                         app.search_matches.get(app.search_match_index) == Some(&i);
+                    let is_selected = i >= sel_start && i <= sel_end;
+                    let is_cursor = i == cursor_line;
 
-                    let line_style = if is_current_match {
-                        Style::default().bg(Color::Yellow).fg(Color::Black)
+                    // Determine line style: cursor > selection > search match > normal
+                    let (line_style, line_num_style) = if is_cursor {
+                        (
+                            Style::default().bg(Color::Blue).fg(Color::White),
+                            Style::default().bg(Color::Blue).fg(Color::White),
+                        )
+                    } else if is_selected {
+                        (
+                            Style::default().bg(Color::DarkGray).fg(Color::White),
+                            Style::default().bg(Color::DarkGray).fg(Color::White),
+                        )
+                    } else if is_current_match {
+                        (
+                            Style::default().bg(Color::Yellow).fg(Color::Black),
+                            Style::default().fg(Color::DarkGray),
+                        )
                     } else if is_match {
-                        Style::default().bg(Color::DarkGray)
+                        (
+                            Style::default().bg(Color::DarkGray),
+                            Style::default().fg(Color::DarkGray),
+                        )
                     } else {
-                        Style::default()
+                        (Style::default(), Style::default().fg(Color::DarkGray))
                     };
 
                     Line::from(vec![
-                        Span::styled(
-                            format!("{:>6} │ ", line_num),
-                            Style::default().fg(Color::DarkGray),
-                        ),
+                        Span::styled(format!("{:>6} │ ", line_num), line_num_style),
                         Span::styled(line, line_style),
                     ])
                 })
