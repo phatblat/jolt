@@ -1,5 +1,5 @@
-// Tab bar rendering with badge support for Console tab.
-// Handles visual indication of active tab and unread error count.
+// Tab bar rendering for the four main tabs.
+// Handles visual indication of active tab and sync status.
 
 use ratatui::{prelude::*, widgets::*};
 
@@ -7,23 +7,17 @@ use crate::app::{App, Tab};
 
 /// Draw the tab bar at the top of the screen.
 pub fn draw_tabs(frame: &mut Frame, app: &App, area: Rect) {
-    let tabs = [Tab::Runners, Tab::Workflows, Tab::Console];
+    let tabs = [Tab::Runners, Tab::Workflows, Tab::Analyze, Tab::Sync];
 
     let tab_titles: Vec<Line> = tabs
         .iter()
         .map(|tab| {
-            let title = if *tab == Tab::Console && app.console_unread > 0 {
-                format!("{} ({})", tab.title(), app.console_unread)
-            } else {
-                tab.title().to_string()
-            };
+            let title = tab.title().to_string();
 
             let style = if *tab == app.active_tab {
                 Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD)
-            } else if *tab == Tab::Console && app.console_unread > 0 {
-                Style::default().fg(Color::Red)
             } else {
                 Style::default().fg(Color::White)
             };
