@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::prelude::*;
+use ratatui::widgets::ListState;
 
 use crate::github::GitHubClient;
 use crate::state::{LoadingState, RunnersTabState, RunnersViewLevel, ViewLevel, WorkflowsTabState};
@@ -95,6 +96,8 @@ pub struct App {
     pub console_unread: usize,
     /// Console messages.
     pub console_messages: Vec<ConsoleMessage>,
+    /// Console list selection state.
+    pub console_list_state: ListState,
     /// Whether the app should exit.
     pub should_quit: bool,
     /// GitHub API client (None if no token).
@@ -121,6 +124,7 @@ impl App {
             active_tab: Tab::default(),
             console_unread: 0,
             console_messages: Vec::new(),
+            console_list_state: ListState::default(),
             should_quit: false,
             github_client,
             workflows: WorkflowsTabState::new(),
@@ -183,7 +187,7 @@ impl App {
         match self.active_tab {
             Tab::Workflows => self.workflows.select_prev(),
             Tab::Runners => self.runners.select_prev(),
-            Tab::Console => {} // TODO: Scroll console
+            Tab::Console => self.console_select_prev(),
         }
     }
 
@@ -192,7 +196,7 @@ impl App {
         match self.active_tab {
             Tab::Workflows => self.workflows.select_next(),
             Tab::Runners => self.runners.select_next(),
-            Tab::Console => {}
+            Tab::Console => self.console_select_next(),
         }
     }
 
@@ -779,6 +783,42 @@ impl App {
     #[allow(dead_code)]
     fn log_info(&mut self, message: impl Into<String>) {
         self.console_messages.push(ConsoleMessage::info(message));
+    }
+
+    /// Select previous item in console list.
+    fn console_select_prev(&mut self) {
+        if self.console_messages.is_empty() {
+            return;
+        }
+        let i = match self.console_list_state.selected() {
+            Some(i) => {
+                if i == 0 {
+                    0
+                } else {
+                    i - 1
+                }
+            }
+            None => self.console_messages.len().saturating_sub(1),
+        };
+        self.console_list_state.select(Some(i));
+    }
+
+    /// Select next item in console list.
+    fn console_select_next(&mut self) {
+        if self.console_messages.is_empty() {
+            return;
+        }
+        let i = match self.console_list_state.selected() {
+            Some(i) => {
+                if i >= self.console_messages.len() - 1 {
+                    self.console_messages.len() - 1
+                } else {
+                    i + 1
+                }
+            }
+            None => self.console_messages.len().saturating_sub(1),
+        };
+        self.console_list_state.select(Some(i));
     }
 
     /// Clear console badge when viewing console tab.

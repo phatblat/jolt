@@ -233,7 +233,7 @@ fn draw_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 /// Draw the Console tab with error messages.
-fn draw_console_tab(frame: &mut Frame, app: &App, area: Rect) {
+fn draw_console_tab(frame: &mut Frame, app: &mut App, area: Rect) {
     let block = Block::default().borders(Borders::ALL).title(" Console ");
 
     if app.console_messages.is_empty() {
@@ -243,9 +243,11 @@ fn draw_console_tab(frame: &mut Frame, app: &App, area: Rect) {
             .block(block);
         frame.render_widget(text, area);
     } else {
+        // Show newest messages first (reverse order)
         let items: Vec<ListItem> = app
             .console_messages
             .iter()
+            .rev()
             .map(|msg| {
                 let (icon, color) = match msg.level {
                     ConsoleLevel::Error => ("❌", Color::Red),
@@ -264,8 +266,16 @@ fn draw_console_tab(frame: &mut Frame, app: &App, area: Rect) {
             })
             .collect();
 
-        let list_widget = List::new(items).block(block);
-        frame.render_widget(list_widget, area);
+        let list_widget = List::new(items)
+            .block(block)
+            .highlight_style(
+                Style::default()
+                    .bg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .highlight_symbol("> ");
+
+        frame.render_stateful_widget(list_widget, area, &mut app.console_list_state);
     }
 }
 
