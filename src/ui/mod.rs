@@ -68,10 +68,25 @@ fn draw_content(frame: &mut Frame, app: &mut App, area: Rect) {
 fn draw_runners_tab(frame: &mut Frame, app: &mut App, area: Rect) {
     match app.runners.nav.current().clone() {
         RunnersViewLevel::Repositories => {
-            list::render_repositories_list(frame, &mut app.runners.repositories, area);
+            list::render_runner_repositories_list(
+                frame,
+                &mut app.runners.repositories,
+                &app.favorite_repos,
+                area,
+            );
         }
-        RunnersViewLevel::Runners { .. } => {
-            list::render_runners_list(frame, &mut app.runners.runners, area);
+        RunnersViewLevel::Runners {
+            ref owner,
+            ref repo,
+        } => {
+            list::render_runners_list(
+                frame,
+                &mut app.runners.runners,
+                &app.favorite_runners,
+                owner,
+                repo,
+                area,
+            );
         }
         RunnersViewLevel::Runs { .. } => {
             list::render_runs_list(frame, &mut app.runners.runs, area);
@@ -211,13 +226,29 @@ fn draw_runners_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
 fn draw_workflows_tab(frame: &mut Frame, app: &mut App, area: Rect) {
     match app.workflows.nav.current().clone() {
         ViewLevel::Owners => {
-            list::render_owners_list(frame, &mut app.workflows.owners, area);
+            list::render_owners_list(frame, &mut app.workflows.owners, &app.favorite_owners, area);
         }
-        ViewLevel::Repositories { .. } => {
-            list::render_repositories_list(frame, &mut app.workflows.repositories, area);
+        ViewLevel::Repositories { ref owner } => {
+            list::render_repositories_list(
+                frame,
+                &mut app.workflows.repositories,
+                &app.favorite_repos,
+                owner,
+                area,
+            );
         }
-        ViewLevel::Workflows { .. } => {
-            list::render_workflows_list(frame, &mut app.workflows.workflows, area);
+        ViewLevel::Workflows {
+            ref owner,
+            ref repo,
+        } => {
+            list::render_workflows_list(
+                frame,
+                &mut app.workflows.workflows,
+                &app.favorite_workflows,
+                owner,
+                repo,
+                area,
+            );
         }
         ViewLevel::Runs { .. } => {
             list::render_runs_list(frame, &mut app.workflows.runs, area);
@@ -469,7 +500,7 @@ fn draw_help_overlay(frame: &mut Frame) {
 
     // Create a centered popup
     let popup_width = 55;
-    let popup_height = 23;
+    let popup_height = 24;
     let popup_x = (area.width.saturating_sub(popup_width)) / 2;
     let popup_y = (area.height.saturating_sub(popup_height)) / 2;
 
@@ -527,6 +558,10 @@ fn draw_help_overlay(frame: &mut Frame) {
         Line::from(vec![
             Span::styled("  o             ", Style::default().fg(Color::Cyan)),
             Span::raw("Open in GitHub"),
+        ]),
+        Line::from(vec![
+            Span::styled("  f             ", Style::default().fg(Color::Cyan)),
+            Span::raw("Toggle favorite"),
         ]),
         Line::from(vec![
             Span::styled("  ?             ", Style::default().fg(Color::Cyan)),

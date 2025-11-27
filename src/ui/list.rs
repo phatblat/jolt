@@ -1,6 +1,8 @@
 // Generic list rendering for selectable items.
 // Provides styled list views with loading and empty states.
 
+use std::collections::HashSet;
+
 use chrono::{DateTime, Utc};
 use ratatui::{prelude::*, widgets::*};
 
@@ -80,7 +82,12 @@ pub fn render_empty(frame: &mut Frame, area: Rect, message: &str) {
 }
 
 /// Render owners list.
-pub fn render_owners_list(frame: &mut Frame, list: &mut SelectableList<Owner>, area: Rect) {
+pub fn render_owners_list(
+    frame: &mut Frame,
+    list: &mut SelectableList<Owner>,
+    favorites: &HashSet<String>,
+    area: Rect,
+) {
     match &list.data {
         LoadingState::Idle => render_empty(frame, area, "Press Enter to load"),
         LoadingState::Loading => render_loading(frame, area, "Loading owners"),
@@ -89,17 +96,30 @@ pub fn render_owners_list(frame: &mut Frame, list: &mut SelectableList<Owner>, a
             if data.is_empty() {
                 render_empty(frame, area, "No accessible owners found");
             } else {
-                let items: Vec<ListItem> = data
-                    .items
+                // Sort: favorites first, then alphabetically
+                let mut sorted: Vec<_> = data.items.iter().collect();
+                sorted.sort_by(|a, b| {
+                    let a_fav = favorites.contains(&a.login);
+                    let b_fav = favorites.contains(&b.login);
+                    match (a_fav, b_fav) {
+                        (true, false) => std::cmp::Ordering::Less,
+                        (false, true) => std::cmp::Ordering::Greater,
+                        _ => a.login.cmp(&b.login),
+                    }
+                });
+
+                let items: Vec<ListItem> = sorted
                     .iter()
                     .map(|owner| {
+                        let is_fav = favorites.contains(&owner.login);
+                        let star = if is_fav { "⭐ " } else { "" };
                         let type_indicator = match owner.owner_type {
                             OwnerType::User => "👤",
                             OwnerType::Organization => "🏢",
                             OwnerType::Bot => "🤖",
                             OwnerType::Unknown => "❓",
                         };
-                        ListItem::new(format!("{} {}", type_indicator, owner.login))
+                        ListItem::new(format!("{}{} {}", star, type_indicator, owner.login))
                     })
                     .collect();
 
@@ -118,10 +138,12 @@ pub fn render_owners_list(frame: &mut Frame, list: &mut SelectableList<Owner>, a
     }
 }
 
-/// Render repositories list.
+/// Render repositories list (for Workflows tab with owner context).
 pub fn render_repositories_list(
     frame: &mut Frame,
     list: &mut SelectableList<Repository>,
+    favorites: &HashSet<String>,
+    owner: &str,
     area: Rect,
 ) {
     match &list.data {
@@ -132,14 +154,30 @@ pub fn render_repositories_list(
             if data.is_empty() {
                 render_empty(frame, area, "No repositories found");
             } else {
-                let items: Vec<ListItem> = data
-                    .items
+                // Sort: favorites first, then by name
+                let mut sorted: Vec<_> = data.items.iter().collect();
+                sorted.sort_by(|a, b| {
+                    let a_key = format!("{}/{}", owner, a.name);
+                    let b_key = format!("{}/{}", owner, b.name);
+                    let a_fav = favorites.contains(&a_key);
+                    let b_fav = favorites.contains(&b_key);
+                    match (a_fav, b_fav) {
+                        (true, false) => std::cmp::Ordering::Less,
+                        (false, true) => std::cmp::Ordering::Greater,
+                        _ => a.name.cmp(&b.name),
+                    }
+                });
+
+                let items: Vec<ListItem> = sorted
                     .iter()
                     .map(|repo| {
+                        let key = format!("{}/{}", owner, repo.name);
+                        let is_fav = favorites.contains(&key);
+                        let star = if is_fav { "⭐ " } else { "" };
                         let visibility = if repo.private { "🔒" } else { "🌐" };
                         let updated = format_relative_time(&repo.updated_at);
                         ListItem::new(Line::from(vec![
-                            Span::raw(format!("{} ", visibility)),
+                            Span::raw(format!("{}{} ", star, visibility)),
                             Span::styled(&repo.name, Style::default().fg(Color::Cyan)),
                             Span::styled(
                                 format!("  {}", updated),
@@ -168,8 +206,85 @@ pub fn render_repositories_list(
     }
 }
 
+/// Render repositories list for Runners tab (shows owner/repo).
+pub fn render_runner_repositories_list(
+    frame: &mut Frame,
+    list: &mut SelectableList<Repository>,
+    favorites: &HashSet<String>,
+    area: Rect,
+) {
+    match &list.data {
+        LoadingState::Idle => render_empty(frame, area, "Press Enter to load"),
+        LoadingState::Loading => render_loading(frame, area, "Loading repositories"),
+        LoadingState::Error(e) => render_error(frame, area, e),
+        LoadingState::Loaded(data) => {
+            if data.is_empty() {
+                render_empty(frame, area, "No repositories found");
+            } else {
+                // Sort: favorites first, then by name
+                let mut sorted: Vec<_> = data.items.iter().collect();
+                sorted.sort_by(|a, b| {
+                    let a_key = format!("{}/{}", a.owner.login, a.name);
+                    let b_key = format!("{}/{}", b.owner.login, b.name);
+                    let a_fav = favorites.contains(&a_key);
+                    let b_fav = favorites.contains(&b_key);
+                    match (a_fav, b_fav) {
+                        (true, false) => std::cmp::Ordering::Less,
+                        (false, true) => std::cmp::Ordering::Greater,
+                        _ => a_key.cmp(&b_key),
+                    }
+                });
+
+                let items: Vec<ListItem> = sorted
+                    .iter()
+                    .map(|repo| {
+                        let key = format!("{}/{}", repo.owner.login, repo.name);
+                        let is_fav = favorites.contains(&key);
+                        let star = if is_fav { "⭐ " } else { "" };
+                        let visibility = if repo.private { "🔒" } else { "🌐" };
+                        let updated = format_relative_time(&repo.updated_at);
+                        ListItem::new(Line::from(vec![
+                            Span::raw(format!("{}{} ", star, visibility)),
+                            Span::styled(
+                                format!("{}/{}", repo.owner.login, repo.name),
+                                Style::default().fg(Color::Cyan),
+                            ),
+                            Span::styled(
+                                format!("  {}", updated),
+                                Style::default().fg(Color::DarkGray),
+                            ),
+                        ]))
+                    })
+                    .collect();
+
+                let list_widget = List::new(items)
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title(" Repositories "),
+                    )
+                    .highlight_style(
+                        Style::default()
+                            .bg(Color::DarkGray)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                    .highlight_symbol("> ");
+
+                frame.render_stateful_widget(list_widget, area, &mut list.list_state);
+            }
+        }
+    }
+}
+
 /// Render workflows list.
-pub fn render_workflows_list(frame: &mut Frame, list: &mut SelectableList<Workflow>, area: Rect) {
+pub fn render_workflows_list(
+    frame: &mut Frame,
+    list: &mut SelectableList<Workflow>,
+    favorites: &HashSet<String>,
+    owner: &str,
+    repo: &str,
+    area: Rect,
+) {
     match &list.data {
         LoadingState::Idle => render_empty(frame, area, "Press Enter to load"),
         LoadingState::Loading => render_loading(frame, area, "Loading workflows"),
@@ -178,13 +293,30 @@ pub fn render_workflows_list(frame: &mut Frame, list: &mut SelectableList<Workfl
             if data.is_empty() {
                 render_empty(frame, area, "No workflows in this repository");
             } else {
-                let items: Vec<ListItem> = data
-                    .items
+                // Sort: favorites first, then by name
+                let mut sorted: Vec<_> = data.items.iter().collect();
+                sorted.sort_by(|a, b| {
+                    let a_key = format!("{}/{}/{}", owner, repo, a.id);
+                    let b_key = format!("{}/{}/{}", owner, repo, b.id);
+                    let a_fav = favorites.contains(&a_key);
+                    let b_fav = favorites.contains(&b_key);
+                    match (a_fav, b_fav) {
+                        (true, false) => std::cmp::Ordering::Less,
+                        (false, true) => std::cmp::Ordering::Greater,
+                        _ => a.name.cmp(&b.name),
+                    }
+                });
+
+                let items: Vec<ListItem> = sorted
                     .iter()
                     .map(|workflow| {
+                        let key = format!("{}/{}/{}", owner, repo, workflow.id);
+                        let is_fav = favorites.contains(&key);
+                        let star = if is_fav { "⭐ " } else { "" };
                         // Extract just the filename from path (e.g., "ci.yml" from ".github/workflows/ci.yml")
                         let filename = workflow.path.rsplit('/').next().unwrap_or(&workflow.path);
                         ListItem::new(Line::from(vec![
+                            Span::raw(star),
                             Span::styled(&workflow.name, Style::default().fg(Color::Cyan)),
                             Span::styled(
                                 format!("  {}", filename),
@@ -408,7 +540,14 @@ pub fn render_jobs_list(frame: &mut Frame, list: &mut SelectableList<Job>, area:
 }
 
 /// Render runners list.
-pub fn render_runners_list(frame: &mut Frame, list: &mut SelectableList<Runner>, area: Rect) {
+pub fn render_runners_list(
+    frame: &mut Frame,
+    list: &mut SelectableList<Runner>,
+    favorites: &HashSet<String>,
+    owner: &str,
+    repo: &str,
+    area: Rect,
+) {
     match &list.data {
         LoadingState::Idle => render_empty(frame, area, "Press Enter to load"),
         LoadingState::Loading => render_loading(frame, area, "Loading runners"),
@@ -417,10 +556,27 @@ pub fn render_runners_list(frame: &mut Frame, list: &mut SelectableList<Runner>,
             if data.is_empty() {
                 render_empty(frame, area, "No runners found");
             } else {
-                let items: Vec<ListItem> = data
-                    .items
+                // Sort: favorites first, then by name
+                let mut sorted: Vec<_> = data.items.iter().collect();
+                sorted.sort_by(|a, b| {
+                    let a_key = format!("{}/{}/{}", owner, repo, a.name);
+                    let b_key = format!("{}/{}/{}", owner, repo, b.name);
+                    let a_fav = favorites.contains(&a_key);
+                    let b_fav = favorites.contains(&b_key);
+                    match (a_fav, b_fav) {
+                        (true, false) => std::cmp::Ordering::Less,
+                        (false, true) => std::cmp::Ordering::Greater,
+                        _ => a.name.cmp(&b.name),
+                    }
+                });
+
+                let items: Vec<ListItem> = sorted
                     .iter()
                     .map(|runner| {
+                        let key = format!("{}/{}/{}", owner, repo, runner.name);
+                        let is_fav = favorites.contains(&key);
+                        let star = if is_fav { "⭐ " } else { "" };
+
                         let (status_icon, status_color) = match runner.status {
                             RunnerStatus::Online => ("🟢", Color::Green),
                             RunnerStatus::Offline => ("⚫", Color::DarkGray),
@@ -442,7 +598,7 @@ pub fn render_runners_list(frame: &mut Frame, list: &mut SelectableList<Runner>,
                         };
 
                         ListItem::new(Line::from(vec![
-                            Span::raw(format!("{} ", status_icon)),
+                            Span::raw(format!("{}{} ", star, status_icon)),
                             Span::styled(&runner.name, Style::default().fg(status_color)),
                             Span::styled(busy_indicator, Style::default().fg(Color::Yellow)),
                             Span::styled(

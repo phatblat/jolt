@@ -1,6 +1,7 @@
 // App state and main event loop.
 // Manages tabs, navigation state, and keyboard input handling.
 
+use std::collections::HashSet;
 use std::io;
 use std::time::Duration;
 
@@ -95,6 +96,18 @@ impl ConsoleMessage {
 pub struct PersistedState {
     /// Last active tab.
     pub active_tab: Tab,
+    /// Favorite owners (by login).
+    #[serde(default)]
+    pub favorite_owners: HashSet<String>,
+    /// Favorite repositories (as "owner/repo").
+    #[serde(default)]
+    pub favorite_repos: HashSet<String>,
+    /// Favorite workflows (as "owner/repo/workflow_id").
+    #[serde(default)]
+    pub favorite_workflows: HashSet<String>,
+    /// Favorite runners (as "owner/repo/runner_name").
+    #[serde(default)]
+    pub favorite_runners: HashSet<String>,
 }
 
 impl PersistedState {
@@ -152,6 +165,14 @@ pub struct App {
     pub workflows: WorkflowsTabState,
     /// Runners tab state.
     pub runners: RunnersTabState,
+    /// Favorite owners.
+    pub favorite_owners: HashSet<String>,
+    /// Favorite repositories.
+    pub favorite_repos: HashSet<String>,
+    /// Favorite workflows.
+    pub favorite_workflows: HashSet<String>,
+    /// Favorite runners.
+    pub favorite_runners: HashSet<String>,
 }
 
 impl App {
@@ -183,6 +204,10 @@ impl App {
             github_client,
             workflows: WorkflowsTabState::new(),
             runners: RunnersTabState::new(),
+            favorite_owners: persisted.favorite_owners,
+            favorite_repos: persisted.favorite_repos,
+            favorite_workflows: persisted.favorite_workflows,
+            favorite_runners: persisted.favorite_runners,
         }
     }
 
@@ -190,6 +215,10 @@ impl App {
     pub fn save_state(&self) {
         let state = PersistedState {
             active_tab: self.active_tab,
+            favorite_owners: self.favorite_owners.clone(),
+            favorite_repos: self.favorite_repos.clone(),
+            favorite_workflows: self.favorite_workflows.clone(),
+            favorite_runners: self.favorite_runners.clone(),
         };
         state.save();
     }
@@ -314,6 +343,7 @@ impl App {
                         KeyCode::Char('r') => self.handle_refresh().await,
                         KeyCode::Char('/') => self.handle_search_start(),
                         KeyCode::Char('o') => self.handle_open_in_browser(),
+                        KeyCode::Char('f') => self.toggle_favorite(),
                         // Search navigation
                         KeyCode::Char('n') => self.search_next(),
                         KeyCode::Char('N') => self.search_prev(),
@@ -504,6 +534,79 @@ impl App {
             if let Err(e) = std::process::Command::new("open").arg(&url).spawn() {
                 self.log_error(format!("Failed to open browser: {}", e));
             }
+        }
+    }
+
+    /// Toggle favorite status for the currently selected item.
+    fn toggle_favorite(&mut self) {
+        match self.active_tab {
+            Tab::Workflows => self.toggle_workflows_favorite(),
+            Tab::Runners => self.toggle_runners_favorite(),
+            Tab::Console => {}
+        }
+    }
+
+    /// Toggle favorite in Workflows tab.
+    fn toggle_workflows_favorite(&mut self) {
+        match self.workflows.nav.current() {
+            ViewLevel::Owners => {
+                if let Some(owner) = self.workflows.owners.selected_item() {
+                    let key = owner.login.clone();
+                    if self.favorite_owners.contains(&key) {
+                        self.favorite_owners.remove(&key);
+                    } else {
+                        self.favorite_owners.insert(key);
+                    }
+                }
+            }
+            ViewLevel::Repositories { owner } => {
+                if let Some(repo) = self.workflows.repositories.selected_item() {
+                    let key = format!("{}/{}", owner, repo.name);
+                    if self.favorite_repos.contains(&key) {
+                        self.favorite_repos.remove(&key);
+                    } else {
+                        self.favorite_repos.insert(key);
+                    }
+                }
+            }
+            ViewLevel::Workflows { owner, repo } => {
+                if let Some(workflow) = self.workflows.workflows.selected_item() {
+                    let key = format!("{}/{}/{}", owner, repo, workflow.id);
+                    if self.favorite_workflows.contains(&key) {
+                        self.favorite_workflows.remove(&key);
+                    } else {
+                        self.favorite_workflows.insert(key);
+                    }
+                }
+            }
+            _ => {} // Can't favorite runs, jobs, or logs
+        }
+    }
+
+    /// Toggle favorite in Runners tab.
+    fn toggle_runners_favorite(&mut self) {
+        match self.runners.nav.current() {
+            RunnersViewLevel::Repositories => {
+                if let Some(repo) = self.runners.repositories.selected_item() {
+                    let key = format!("{}/{}", repo.owner.login, repo.name);
+                    if self.favorite_repos.contains(&key) {
+                        self.favorite_repos.remove(&key);
+                    } else {
+                        self.favorite_repos.insert(key);
+                    }
+                }
+            }
+            RunnersViewLevel::Runners { owner, repo } => {
+                if let Some(runner) = self.runners.runners.selected_item() {
+                    let key = format!("{}/{}/{}", owner, repo, runner.name);
+                    if self.favorite_runners.contains(&key) {
+                        self.favorite_runners.remove(&key);
+                    } else {
+                        self.favorite_runners.insert(key);
+                    }
+                }
+            }
+            _ => {} // Can't favorite runs, jobs, or logs
         }
     }
 
