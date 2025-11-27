@@ -1,7 +1,7 @@
 // Navigation state management.
 // Handles the navigation stack and breadcrumb trail for drill-down views.
 
-use crate::github::RunConclusion;
+use crate::github::{RunConclusion, RunStatus};
 
 /// A node in the navigation breadcrumb trail.
 #[derive(Debug, Clone)]
@@ -44,6 +44,7 @@ pub enum ViewLevel {
         run_id: u64,
         job_id: u64,
         job_name: String,
+        job_status: RunStatus,
         job_conclusion: Option<RunConclusion>,
     },
 }

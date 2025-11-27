@@ -8,7 +8,7 @@ mod tabs;
 use ratatui::{prelude::*, widgets::*};
 
 use crate::app::{App, ConsoleLevel, Tab};
-use crate::github::RunConclusion;
+use crate::github::{RunConclusion, RunStatus};
 use crate::state::{LoadingState, RunnersViewLevel, ViewLevel};
 
 /// Main draw function that renders the entire UI.
@@ -133,19 +133,38 @@ fn draw_runners_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
         }
         LoadingState::Error(e) => {
             let block = Block::default().borders(Borders::ALL).title(" Logs ");
-            // Check if job was skipped
-            let is_skipped = matches!(
-                app.runners.nav.current(),
+            // Check job status/conclusion for special states
+            let (is_skipped, is_waiting) = match app.runners.nav.current() {
                 RunnersViewLevel::Logs {
-                    job_conclusion: Some(RunConclusion::Skipped),
+                    job_status,
+                    job_conclusion,
                     ..
-                }
-            );
+                } => (
+                    matches!(job_conclusion, Some(RunConclusion::Skipped)),
+                    matches!(
+                        job_status,
+                        RunStatus::Queued | RunStatus::Waiting | RunStatus::Pending
+                    ),
+                ),
+                _ => (false, false),
+            };
             let lines = if is_skipped {
                 vec![
                     Line::from(Span::styled(
                         "⏭️  This job was skipped",
                         Style::default().fg(Color::Gray),
+                    )),
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        "Press 'o' to view in browser",
+                        Style::default().fg(Color::DarkGray),
+                    )),
+                ]
+            } else if is_waiting {
+                vec![
+                    Line::from(Span::styled(
+                        "⏳ This job is queued and waiting to run",
+                        Style::default().fg(Color::Blue),
                     )),
                     Line::from(""),
                     Line::from(Span::styled(
@@ -317,19 +336,38 @@ fn draw_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
         }
         LoadingState::Error(e) => {
             let block = Block::default().borders(Borders::ALL).title(" Logs ");
-            // Check if job was skipped
-            let is_skipped = matches!(
-                app.workflows.nav.current(),
+            // Check job status/conclusion for special states
+            let (is_skipped, is_waiting) = match app.workflows.nav.current() {
                 ViewLevel::Logs {
-                    job_conclusion: Some(RunConclusion::Skipped),
+                    job_status,
+                    job_conclusion,
                     ..
-                }
-            );
+                } => (
+                    matches!(job_conclusion, Some(RunConclusion::Skipped)),
+                    matches!(
+                        job_status,
+                        RunStatus::Queued | RunStatus::Waiting | RunStatus::Pending
+                    ),
+                ),
+                _ => (false, false),
+            };
             let lines = if is_skipped {
                 vec![
                     Line::from(Span::styled(
                         "⏭️  This job was skipped",
                         Style::default().fg(Color::Gray),
+                    )),
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        "Press 'o' to view in browser",
+                        Style::default().fg(Color::DarkGray),
+                    )),
+                ]
+            } else if is_waiting {
+                vec![
+                    Line::from(Span::styled(
+                        "⏳ This job is queued and waiting to run",
+                        Style::default().fg(Color::Blue),
                     )),
                     Line::from(""),
                     Line::from(Span::styled(
