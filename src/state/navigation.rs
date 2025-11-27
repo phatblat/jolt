@@ -1,6 +1,8 @@
 // Navigation state management.
 // Handles the navigation stack and breadcrumb trail for drill-down views.
 
+use serde::{Deserialize, Serialize};
+
 use crate::github::{RunConclusion, RunStatus};
 
 /// A node in the navigation breadcrumb trail.
@@ -13,7 +15,7 @@ pub struct BreadcrumbNode {
 }
 
 /// The current view level in the navigation hierarchy.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ViewLevel {
     /// Top level: list of owners (users/orgs)
     Owners,
@@ -80,7 +82,7 @@ impl ViewLevel {
 }
 
 /// Navigation stack for a tab.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NavigationStack {
     /// Stack of view levels (bottom = root, top = current)
     stack: Vec<ViewLevel>,

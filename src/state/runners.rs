@@ -1,12 +1,14 @@
 // Runners tab state management.
 // Handles navigation and data for the runners tab.
 
+use serde::{Deserialize, Serialize};
+
 use crate::github::{Job, Repository, RunConclusion, RunStatus, Runner, WorkflowRun};
 
 use super::workflows::{LoadingState, SelectableList};
 
 /// Navigation level for the Runners tab.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RunnersViewLevel {
     /// Top level: repositories with runners
     Repositories,
@@ -79,7 +81,7 @@ pub struct RunnersBreadcrumb {
 }
 
 /// Navigation stack for runners tab.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunnersNavStack {
     stack: Vec<RunnersViewLevel>,
 }

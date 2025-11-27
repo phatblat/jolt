@@ -12,7 +12,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::cache;
 use crate::github::GitHubClient;
-use crate::state::{LoadingState, RunnersTabState, RunnersViewLevel, ViewLevel, WorkflowsTabState};
+use crate::state::{
+    LoadingState, NavigationStack, RunnersNavStack, RunnersTabState, RunnersViewLevel, ViewLevel,
+    WorkflowsTabState,
+};
 use crate::ui;
 
 /// Active tab in the application.
@@ -96,6 +99,12 @@ impl ConsoleMessage {
 pub struct PersistedState {
     /// Last active tab.
     pub active_tab: Tab,
+    /// Workflows tab navigation stack.
+    #[serde(default)]
+    pub workflows_nav: Option<NavigationStack>,
+    /// Runners tab navigation stack.
+    #[serde(default)]
+    pub runners_nav: Option<RunnersNavStack>,
     /// Favorite owners (by login).
     #[serde(default)]
     pub favorite_owners: HashSet<String>,
@@ -190,6 +199,16 @@ impl App {
             }
         };
 
+        // Create tab states and restore navigation if available
+        let mut workflows = WorkflowsTabState::new();
+        if let Some(nav) = persisted.workflows_nav {
+            workflows.nav = nav;
+        }
+        let mut runners = RunnersTabState::new();
+        if let Some(nav) = persisted.runners_nav {
+            runners.nav = nav;
+        }
+
         Self {
             active_tab: persisted.active_tab,
             console_unread: 0,
@@ -202,8 +221,8 @@ impl App {
             search_matches: Vec::new(),
             search_match_index: 0,
             github_client,
-            workflows: WorkflowsTabState::new(),
-            runners: RunnersTabState::new(),
+            workflows,
+            runners,
             favorite_owners: persisted.favorite_owners,
             favorite_repos: persisted.favorite_repos,
             favorite_workflows: persisted.favorite_workflows,
@@ -215,6 +234,8 @@ impl App {
     pub fn save_state(&self) {
         let state = PersistedState {
             active_tab: self.active_tab,
+            workflows_nav: Some(self.workflows.nav.clone()),
+            runners_nav: Some(self.runners.nav.clone()),
             favorite_owners: self.favorite_owners.clone(),
             favorite_repos: self.favorite_repos.clone(),
             favorite_workflows: self.favorite_workflows.clone(),
