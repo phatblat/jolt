@@ -360,7 +360,7 @@ impl App {
                         KeyCode::Char('G') => self.handle_end(),
                         // Actions
                         KeyCode::Enter => self.handle_enter().await,
-                        KeyCode::Esc => self.handle_escape(),
+                        KeyCode::Esc => self.handle_escape().await,
                         KeyCode::Char('r') => self.handle_refresh().await,
                         KeyCode::Char('/') => self.handle_search_start(),
                         KeyCode::Char('o') => self.handle_open_in_browser(),
@@ -1141,13 +1141,17 @@ impl App {
     }
 
     /// Handle Escape key (go back).
-    fn handle_escape(&mut self) {
+    async fn handle_escape(&mut self) {
         match self.active_tab {
             Tab::Workflows => {
-                self.workflows.go_back();
+                if self.workflows.go_back() {
+                    self.load_current_view().await;
+                }
             }
             Tab::Runners => {
-                self.runners.go_back();
+                if self.runners.go_back() {
+                    self.load_runners_view().await;
+                }
             }
             Tab::Console => {}
         }
