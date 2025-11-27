@@ -1,51 +1,41 @@
-# ci-failures
+# jolt
 
-CLI tool to view GitHub Actions job failures.
+Interactive TUI for browsing GitHub Actions workflows, runs, jobs, and logs.
+
+## Features
+
+- **Three tabs**: Runners, Workflows, Console
+- **Hierarchical navigation**: Owners → Repos → Workflows → Runs → Jobs → Logs
+- **Breadcrumb trail**: Visual path showing current location
+- **Log viewer**: Scrollable logs with line numbers
+- **Console**: Error messages with timestamps and badges
+- **State persistence**: Remembers last active tab between sessions
 
 ## Setup
 
-This project uses [mise](https://mise.jdx.dev/) for tool management and [uv](https://docs.astral.sh/uv/) for Python package management.
+This project uses [mise](https://mise.jdx.dev/) for tool management and Rust/Cargo for building.
 
-### Install Dependencies
+### Prerequisites
+
+- Rust toolchain (install via [rustup](https://rustup.rs/))
+- GitHub personal access token
+
+### Build
 
 ```bash
-# Install dependencies
-just install
+# Build debug version
+cargo build
 
-# Or manually with uv
-uv sync
+# Build release version
+cargo build --release
+
+# Or using just
+just build
 ```
 
 ## Usage
 
-### Using Just
-
-```bash
-# List available recipes
-just
-
-# Run the CLI
-just run --repo owner/repo
-just run --repo owner/repo --workflow "CI"
-just run --repo owner/repo --pr 1234
-just run --help
-
-# Test the CLI
-just test-run
-```
-
-### Direct Usage
-
-```bash
-# Using uv run
-uv run python ci_failures.py --repo owner/repo
-
-# Or activate the venv
-source .venv/bin/activate
-python ci_failures.py --repo owner/repo
-```
-
-## Configuration
+### Configuration
 
 Set your GitHub token as an environment variable:
 
@@ -53,49 +43,67 @@ Set your GitHub token as an environment variable:
 export GITHUB_TOKEN="ghp_your_token_here"
 ```
 
-Or pass it via the `--token` flag:
+### Running
 
 ```bash
-just run --repo owner/repo --token ghp_your_token
+# Run the TUI
+cargo run
+
+# Or using just
+just run
 ```
 
-## Examples
+### Keyboard Shortcuts
 
-```bash
-# View recent failures for a repo
-just run --repo launchdarkly/android-client-sdk
-
-# Filter by workflow name (partial match)
-just run --repo launchdarkly/android-client-sdk --workflow "CI"
-
-# Filter by PR number
-just run --repo launchdarkly/android-client-sdk --pr 1234
-
-# Limit results
-just run --repo launchdarkly/android-client-sdk --limit 5
-```
+| Key | Action |
+|-----|--------|
+| `↑`/`↓` | Navigate list / scroll logs |
+| `←`/`→` | Horizontal scroll (logs) |
+| `Enter` | Select / drill down |
+| `Esc` | Go back |
+| `Tab` | Switch tabs |
+| `PgUp`/`PgDn` | Page scroll (logs) |
+| `Home`/`End` | Jump to start/end (logs) |
+| `r` | Refresh current view |
+| `?` | Show help |
+| `q` | Quit |
 
 ## Development
 
 ```bash
-# Install dependencies (including dev tools)
-just install
-
-# Build (install in editable mode)
-just build
-
 # Run tests
-just test
+cargo test
 
 # Lint code
 just lint
-
-# Lint and auto-fix issues
-just lint-fix
 
 # Format code
 just fmt
 
 # Clean build artifacts
 just clean
+```
+
+## Architecture
+
+```
+src/
+├── main.rs           # Entry point
+├── app.rs            # App state, event loop
+├── ui/               # TUI rendering
+│   ├── tabs.rs       # Tab bar
+│   ├── breadcrumb.rs # Navigation breadcrumb
+│   └── list.rs       # List widgets
+├── github/           # GitHub API client
+│   ├── client.rs     # HTTP client
+│   ├── types.rs      # API types
+│   └── endpoints.rs  # API endpoints
+├── cache/            # Local filesystem cache
+│   ├── store.rs      # Cache operations
+│   └── paths.rs      # Cache paths
+├── state/            # Tab state management
+│   ├── navigation.rs # Nav stack
+│   ├── workflows.rs  # Workflows tab
+│   └── runners.rs    # Runners tab
+└── error.rs          # Error types
 ```
