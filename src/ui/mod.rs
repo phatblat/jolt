@@ -220,7 +220,21 @@ fn draw_runners_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
                     "Press 'o' to view in browser",
                     Style::default().fg(Color::DarkGray),
                 )));
-                lines
+                // Render left-aligned for steps list
+                let text = Paragraph::new(lines).block(block);
+                frame.render_widget(text, log_area);
+                // Render search input if active and return early
+                if let Some(search_area) = search_area {
+                    let search_line = Line::from(vec![
+                        Span::styled("/", Style::default().fg(Color::Yellow)),
+                        Span::raw(&app.search_query),
+                        Span::styled("█", Style::default().fg(Color::Yellow)),
+                    ]);
+                    let search_widget =
+                        Paragraph::new(search_line).style(Style::default().bg(Color::DarkGray));
+                    frame.render_widget(search_widget, search_area);
+                }
+                return;
             } else {
                 vec![
                     Line::from(Span::styled(
@@ -473,7 +487,21 @@ fn draw_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
                     "Press 'o' to view in browser",
                     Style::default().fg(Color::DarkGray),
                 )));
-                lines
+                // Render left-aligned for steps list
+                let text = Paragraph::new(lines).block(block);
+                frame.render_widget(text, log_area);
+                // Render search input if active and return early
+                if let Some(search_area) = search_area {
+                    let search_line = Line::from(vec![
+                        Span::styled("/", Style::default().fg(Color::Yellow)),
+                        Span::raw(&app.search_query),
+                        Span::styled("█", Style::default().fg(Color::Yellow)),
+                    ]);
+                    let search_widget =
+                        Paragraph::new(search_line).style(Style::default().bg(Color::DarkGray));
+                    frame.render_widget(search_widget, search_area);
+                }
+                return;
             } else {
                 vec![
                     Line::from(Span::styled(
