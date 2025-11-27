@@ -4,53 +4,53 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**jolt** (JOb Log Ticket) is a CLI tool that queries GitHub Actions workflow logs to find and display failed jobs, making it easier to extract failure information for tickets and debugging.
+**jolt** is a Rust TUI application for browsing GitHub Actions workflow runs, jobs, logs, and runners. Built with ratatui for terminal rendering.
+
+See `docs/ratatui-plan.md` for the full implementation plan.
 
 ## Architecture
 
-The project is single-file Python application (`jolt.py`) with a clear separation of concerns:
-
-1. **GitHubClient** - HTTP wrapper around the GitHub REST API
-   - Handles authentication via Bearer token
-   - Methods: `get_workflow_runs()`, `get_pr_workflow_runs()`, `get_failed_jobs()`
-   - Uses requests library with persistent session
-
-2. **Display & Formatting** - Rich library integration for CLI output
-   - `display_failures()` - Main output function rendering workflow failures in panels/tables
-   - `format_time_ago()` - Helper for human-readable timestamps
-
-3. **CLI Interface** - Click command with options for repo, workflow, PR filtering
-   - Entry point: `main()` function
-   - Command-line args: `--repo`, `--workflow`, `--pr`, `--limit`, `--token`
-
-The application follows a simple pipeline: parse args → create API client → fetch runs → display results
+```
+src/
+├── main.rs              # Entry point, terminal setup/cleanup
+├── app.rs               # App state, event loop, tab management
+├── ui/
+│   ├── mod.rs           # Main draw function, layout
+│   ├── tabs.rs          # Tab bar rendering with badge support
+│   ├── breadcrumb.rs    # Breadcrumb navigation (planned)
+│   ├── list.rs          # Generic list widget (planned)
+│   ├── log_viewer.rs    # Log display with search (planned)
+│   ├── console.rs       # Console message list (planned)
+│   └── help.rs          # Help overlay (planned)
+├── github/              # GitHub API client (planned)
+├── cache/               # Local filesystem cache (planned)
+├── state/               # Navigation and tab state (planned)
+└── error.rs             # Error types (planned)
+```
 
 ## Common Development Tasks
 
 ### Building & Running
 
 ```bash
-# Install dependencies (uv + mise)
+# Install Rust via mise
 just install
 
-# Run with arguments
-just run --repo owner/repo [--workflow NAME] [--pr NUMBER]
-
-# Quick test
-just test-run  # Runs with --help
-
-# Editable install
+# Build debug binary
 just build
+
+# Run the TUI
+just run
+
+# Build release binary
+just release
 ```
 
 ### Quality & Formatting
 
 ```bash
-# Check linting (ruff, justfile format, mise format)
+# Check formatting and linting
 just lint
-
-# Auto-fix issues
-just lint-fix
 
 # Format code
 just fmt
@@ -58,30 +58,36 @@ just fmt
 
 ### Testing
 
-Tests are not yet implemented. When adding tests, ensure they:
-- Cover new functionality
-- Use uv/pytest infrastructure
-- Have pristine output
+```bash
+# Run tests
+just test
+```
 
-### Dependencies
+## Dependencies
 
-- **requests** - GitHub API HTTP client
-- **click** - CLI argument parsing and decoration
-- **rich** - Terminal output formatting (panels, tables, colors)
-- **ruff** - Linting and formatting (dev only)
+- **ratatui** - Terminal UI framework
+- **crossterm** - Cross-platform terminal manipulation
+- **tokio** - Async runtime for non-blocking API calls
+- **reqwest** - HTTP client for GitHub API
+- **serde/serde_json** - JSON serialization
+- **directories** - XDG-compliant cache paths
+- **thiserror** - Error handling
+- **chrono** - Date/time handling
 
 ## Key Implementation Details
 
-- GitHub token sourced from `GITHUB_TOKEN` env var or `--token` flag
-- API version pinned to `2022-11-28`
-- Handles pagination with `per_page` parameter (default 20-50)
-- PR filtering matches on commit SHA or pull_requests references
-- Failed job detection checks job `conclusion` field
-- No persistent state or caching between runs
+- GitHub token from `GITHUB_TOKEN` environment variable
+- Tab navigation: `Tab`/`Shift+Tab` to switch, arrow keys to navigate lists
+- Breadcrumb navigation: `Enter` drills down, `Esc` goes back
+- Local cache at `~/.cache/jolt/` with immutable log storage
+- Fixed color palette for status indicators (see plan)
 
-## Development Guidelines
+## Current Status
 
-- The justfile uses `uv run` to execute Python with proper virtual environment
-- Arguments passed to `just run` use `"$@"` to preserve quoted strings
-- Rich library provides styled console output (colors, underlines, panels)
-- HTTP errors include user-friendly messages for 404/401/other failures
+Phase 1 (Scaffold) complete:
+- [x] Basic ratatui app loop
+- [x] Tab bar with Runners/Workflows/Console
+- [x] Placeholder content per tab
+- [x] Quit on `q`
+
+Next: Phase 2 (GitHub Client)

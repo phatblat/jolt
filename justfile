@@ -1,6 +1,5 @@
 # Justfile for jolt
-#
-# settings
+# Rust TUI for GitHub Actions workflow browsing
 
 set unstable := true
 
@@ -10,9 +9,6 @@ set unstable := true
 
 alias fmt := format
 alias ls := list
-
-# alias od := outdated
-
 alias up := upgrade
 
 #
@@ -23,54 +19,48 @@ alias up := upgrade
 _default:
     @just --list
 
+# List mise tools
 list:
     mise ls --local
 
-# Install dependencies using uv
+# Install dependencies
 install:
     mise install
-    uv sync
+    cargo fetch
 
+# Upgrade mise tools
 upgrade:
     mise upgrade --bump
 
+# Check formatting and linting
 lint:
     mise fmt --check
     just --fmt --check
-    uv run ruff check .
+    cargo fmt --check
+    cargo clippy -- -D warnings
 
+# Format code
 format:
     mise fmt
     just --fmt
-    uv run ruff format .
+    cargo fmt
 
-# Lint and fix auto-fixable issues
-lint-fix:
-    uv run ruff check --fix .
-
-# Build the project (install in editable mode)
+# Build debug binary
 build:
-    uv pip install -e .
+    cargo build
 
-# Run tests (placeholder for when tests are added)
+# Build release binary
+release:
+    cargo build --release
+
+# Run tests
 test:
-    @echo "No tests configured yet"
-    @echo "Run 'just test-run' to test the CLI with a real repo"
+    cargo test
 
-# Test the CLI with a sample command (requires GITHUB_TOKEN)
-test-run:
-    @echo "Testing jolt CLI..."
-    uv run python jolt.py --help
+# Run the TUI
+run:
+    cargo run
 
-# Run the jolt CLI with arguments
-
-# Usage: just run --repo owner/repo [--workflow NAME] [--pr NUMBER]
-[positional-arguments]
-run *ARGS='':
-    uv run python jolt.py "$@"
-
-# Clean build artifacts and cache
+# Clean build artifacts
 clean:
-    rm -rf .venv __pycache__ *.egg-info build dist .pytest_cache
-    find . -type d -name __pycache__ -exec rm -rf {} +
-    find . -type f -name "*.pyc" -delete
+    cargo clean
