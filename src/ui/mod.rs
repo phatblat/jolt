@@ -449,7 +449,7 @@ fn draw_help_overlay(frame: &mut Frame) {
 
     // Create a centered popup
     let popup_width = 55;
-    let popup_height = 22;
+    let popup_height = 23;
     let popup_x = (area.width.saturating_sub(popup_width)) / 2;
     let popup_y = (area.height.saturating_sub(popup_height)) / 2;
 
@@ -503,6 +503,10 @@ fn draw_help_overlay(frame: &mut Frame) {
         Line::from(vec![
             Span::styled("  r             ", Style::default().fg(Color::Cyan)),
             Span::raw("Refresh current view"),
+        ]),
+        Line::from(vec![
+            Span::styled("  o             ", Style::default().fg(Color::Cyan)),
+            Span::raw("Open in GitHub"),
         ]),
         Line::from(vec![
             Span::styled("  ?             ", Style::default().fg(Color::Cyan)),

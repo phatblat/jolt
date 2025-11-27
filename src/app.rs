@@ -297,6 +297,7 @@ impl App {
                         KeyCode::Esc => self.handle_escape(),
                         KeyCode::Char('r') => self.handle_refresh().await,
                         KeyCode::Char('/') => self.handle_search_start(),
+                        KeyCode::Char('o') => self.handle_open_in_browser(),
                         // Search navigation
                         KeyCode::Char('n') => self.search_next(),
                         KeyCode::Char('N') => self.search_prev(),
@@ -471,6 +472,119 @@ impl App {
                 }
                 Tab::Console => {}
             }
+        }
+    }
+
+    /// Open the current item in GitHub in the browser.
+    fn handle_open_in_browser(&mut self) {
+        let url = match self.active_tab {
+            Tab::Workflows => self.get_workflows_github_url(),
+            Tab::Runners => self.get_runners_github_url(),
+            Tab::Console => None,
+        };
+
+        #[allow(clippy::collapsible_if)]
+        if let Some(url) = url {
+            if let Err(e) = std::process::Command::new("open").arg(&url).spawn() {
+                self.log_error(format!("Failed to open browser: {}", e));
+            }
+        }
+    }
+
+    /// Get GitHub URL for current Workflows tab view.
+    fn get_workflows_github_url(&self) -> Option<String> {
+        match self.workflows.nav.current() {
+            ViewLevel::Owners => self
+                .workflows
+                .owners
+                .selected_item()
+                .map(|owner| format!("https://github.com/{}", owner.login)),
+            ViewLevel::Repositories { owner } => self
+                .workflows
+                .repositories
+                .selected_item()
+                .map(|repo| format!("https://github.com/{}/{}", owner, repo.name)),
+            ViewLevel::Workflows { owner, repo } => {
+                self.workflows.workflows.selected_item().map(|workflow| {
+                    format!(
+                        "https://github.com/{}/{}/actions/workflows/{}",
+                        owner,
+                        repo,
+                        workflow.path.rsplit('/').next().unwrap_or(&workflow.path)
+                    )
+                })
+            }
+            ViewLevel::Runs { owner, repo, .. } => self.workflows.runs.selected_item().map(|run| {
+                format!(
+                    "https://github.com/{}/{}/actions/runs/{}",
+                    owner, repo, run.id
+                )
+            }),
+            ViewLevel::Jobs {
+                owner,
+                repo,
+                run_id,
+                ..
+            } => self.workflows.jobs.selected_item().map(|job| {
+                format!(
+                    "https://github.com/{}/{}/actions/runs/{}/job/{}",
+                    owner, repo, run_id, job.id
+                )
+            }),
+            ViewLevel::Logs {
+                owner,
+                repo,
+                run_id,
+                job_id,
+                ..
+            } => Some(format!(
+                "https://github.com/{}/{}/actions/runs/{}/job/{}",
+                owner, repo, run_id, job_id
+            )),
+        }
+    }
+
+    /// Get GitHub URL for current Runners tab view.
+    fn get_runners_github_url(&self) -> Option<String> {
+        match self.runners.nav.current() {
+            RunnersViewLevel::Repositories => self
+                .runners
+                .repositories
+                .selected_item()
+                .map(|repo| format!("https://github.com/{}/{}", repo.owner.login, repo.name)),
+            RunnersViewLevel::Runners { owner, repo } => Some(format!(
+                "https://github.com/{}/{}/settings/actions/runners",
+                owner, repo
+            )),
+            RunnersViewLevel::Runs { owner, repo, .. } => {
+                self.runners.runs.selected_item().map(|run| {
+                    format!(
+                        "https://github.com/{}/{}/actions/runs/{}",
+                        owner, repo, run.id
+                    )
+                })
+            }
+            RunnersViewLevel::Jobs {
+                owner,
+                repo,
+                run_id,
+                ..
+            } => self.runners.jobs.selected_item().map(|job| {
+                format!(
+                    "https://github.com/{}/{}/actions/runs/{}/job/{}",
+                    owner, repo, run_id, job.id
+                )
+            }),
+            RunnersViewLevel::Logs {
+                owner,
+                repo,
+                run_id,
+                job_id,
+                ..
+            } => Some(format!(
+                "https://github.com/{}/{}/actions/runs/{}/job/{}",
+                owner, repo, run_id, job_id
+            )),
         }
     }
 

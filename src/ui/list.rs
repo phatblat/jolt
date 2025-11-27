@@ -183,11 +183,7 @@ pub fn render_workflows_list(frame: &mut Frame, list: &mut SelectableList<Workfl
                     .iter()
                     .map(|workflow| {
                         // Extract just the filename from path (e.g., "ci.yml" from ".github/workflows/ci.yml")
-                        let filename = workflow
-                            .path
-                            .rsplit('/')
-                            .next()
-                            .unwrap_or(&workflow.path);
+                        let filename = workflow.path.rsplit('/').next().unwrap_or(&workflow.path);
                         ListItem::new(Line::from(vec![
                             Span::styled(&workflow.name, Style::default().fg(Color::Cyan)),
                             Span::styled(
