@@ -134,10 +134,11 @@ fn draw_runners_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
         LoadingState::Error(e) => {
             let block = Block::default().borders(Borders::ALL).title(" Logs ");
             // Check job status/conclusion for special states
-            let (is_skipped, is_waiting) = match app.runners.nav.current() {
+            let (is_skipped, is_waiting, is_in_progress, job_id) = match app.runners.nav.current() {
                 RunnersViewLevel::Logs {
                     job_status,
                     job_conclusion,
+                    job_id,
                     ..
                 } => (
                     matches!(job_conclusion, Some(RunConclusion::Skipped)),
@@ -145,8 +146,10 @@ fn draw_runners_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
                         job_status,
                         RunStatus::Queued | RunStatus::Waiting | RunStatus::Pending
                     ),
+                    matches!(job_status, RunStatus::InProgress),
+                    Some(*job_id),
                 ),
-                _ => (false, false),
+                _ => (false, false, false, None),
             };
             let lines = if is_skipped {
                 vec![
@@ -172,6 +175,52 @@ fn draw_runners_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
                         Style::default().fg(Color::DarkGray),
                     )),
                 ]
+            } else if is_in_progress {
+                // Look up job to get steps
+                let job = job_id.and_then(|id| {
+                    app.runners
+                        .jobs
+                        .data
+                        .data()
+                        .and_then(|data| data.items.iter().find(|j| j.id == id))
+                });
+                let mut lines = vec![
+                    Line::from(Span::styled(
+                        "🔄 This job is in progress",
+                        Style::default().fg(Color::Yellow),
+                    )),
+                    Line::from(""),
+                ];
+                if let Some(job) = job {
+                    lines.push(Line::from(Span::styled(
+                        "Steps:",
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    )));
+                    for step in &job.steps {
+                        let (icon, color) = match (&step.status, &step.conclusion) {
+                            (_, Some(RunConclusion::Success)) => ("✅", Color::Green),
+                            (_, Some(RunConclusion::Failure)) => ("❌", Color::Red),
+                            (_, Some(RunConclusion::Skipped)) => ("⏭️", Color::Gray),
+                            (RunStatus::InProgress, _) => ("🔄", Color::Yellow),
+                            (RunStatus::Queued | RunStatus::Waiting | RunStatus::Pending, _) => {
+                                ("⏳", Color::Blue)
+                            }
+                            _ => ("⚪", Color::DarkGray),
+                        };
+                        lines.push(Line::from(vec![
+                            Span::raw(format!("  {} ", icon)),
+                            Span::styled(&step.name, Style::default().fg(color)),
+                        ]));
+                    }
+                }
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(
+                    "Press 'o' to view in browser",
+                    Style::default().fg(Color::DarkGray),
+                )));
+                lines
             } else {
                 vec![
                     Line::from(Span::styled(
@@ -337,10 +386,12 @@ fn draw_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
         LoadingState::Error(e) => {
             let block = Block::default().borders(Borders::ALL).title(" Logs ");
             // Check job status/conclusion for special states
-            let (is_skipped, is_waiting) = match app.workflows.nav.current() {
+            let (is_skipped, is_waiting, is_in_progress, job_id) = match app.workflows.nav.current()
+            {
                 ViewLevel::Logs {
                     job_status,
                     job_conclusion,
+                    job_id,
                     ..
                 } => (
                     matches!(job_conclusion, Some(RunConclusion::Skipped)),
@@ -348,8 +399,10 @@ fn draw_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
                         job_status,
                         RunStatus::Queued | RunStatus::Waiting | RunStatus::Pending
                     ),
+                    matches!(job_status, RunStatus::InProgress),
+                    Some(*job_id),
                 ),
-                _ => (false, false),
+                _ => (false, false, false, None),
             };
             let lines = if is_skipped {
                 vec![
@@ -375,6 +428,52 @@ fn draw_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
                         Style::default().fg(Color::DarkGray),
                     )),
                 ]
+            } else if is_in_progress {
+                // Look up job to get steps
+                let job = job_id.and_then(|id| {
+                    app.workflows
+                        .jobs
+                        .data
+                        .data()
+                        .and_then(|data| data.items.iter().find(|j| j.id == id))
+                });
+                let mut lines = vec![
+                    Line::from(Span::styled(
+                        "🔄 This job is in progress",
+                        Style::default().fg(Color::Yellow),
+                    )),
+                    Line::from(""),
+                ];
+                if let Some(job) = job {
+                    lines.push(Line::from(Span::styled(
+                        "Steps:",
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    )));
+                    for step in &job.steps {
+                        let (icon, color) = match (&step.status, &step.conclusion) {
+                            (_, Some(RunConclusion::Success)) => ("✅", Color::Green),
+                            (_, Some(RunConclusion::Failure)) => ("❌", Color::Red),
+                            (_, Some(RunConclusion::Skipped)) => ("⏭️", Color::Gray),
+                            (RunStatus::InProgress, _) => ("🔄", Color::Yellow),
+                            (RunStatus::Queued | RunStatus::Waiting | RunStatus::Pending, _) => {
+                                ("⏳", Color::Blue)
+                            }
+                            _ => ("⚪", Color::DarkGray),
+                        };
+                        lines.push(Line::from(vec![
+                            Span::raw(format!("  {} ", icon)),
+                            Span::styled(&step.name, Style::default().fg(color)),
+                        ]));
+                    }
+                }
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(
+                    "Press 'o' to view in browser",
+                    Style::default().fg(Color::DarkGray),
+                )));
+                lines
             } else {
                 vec![
                     Line::from(Span::styled(
