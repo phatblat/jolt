@@ -1167,35 +1167,82 @@ impl App {
 
         match current_view {
             ViewLevel::Owners => {
-                if !self.workflows.owners.data.is_loaded() {
-                    self.workflows.owners.set_loading();
-                    let result = Self::fetch_owners(self.github_client.as_mut().unwrap()).await;
-                    match result {
-                        Ok((owners, count)) => {
-                            self.workflows.owners.set_loaded(owners, count);
+                // Load cached owners first for instant display
+                let has_cache = if !self.workflows.owners.data.is_loaded() {
+                    if let Some(path) = cache::owners_list_path() {
+                        if let Ok(Some(cached)) =
+                            cache::read_cached::<Vec<crate::github::Owner>>(&path)
+                        {
+                            let count = cached.data.len() as u64;
+                            self.workflows.owners.set_loaded(cached.data, count);
+                            true
+                        } else {
+                            self.workflows.owners.set_loading();
+                            false
                         }
-                        Err(e) => {
+                    } else {
+                        self.workflows.owners.set_loading();
+                        false
+                    }
+                } else {
+                    true
+                };
+
+                // Always fetch fresh data and update cache
+                let result = Self::fetch_owners(self.github_client.as_mut().unwrap()).await;
+                match result {
+                    Ok((owners, count)) => {
+                        if let Some(path) = cache::owners_list_path() {
+                            let _ = cache::write_cached(&path, &owners, false);
+                        }
+                        self.workflows.owners.set_loaded(owners, count);
+                    }
+                    Err(e) => {
+                        if !has_cache {
                             self.workflows.owners.set_error(e.to_string());
-                            self.log_error(format!("Failed to load owners: {}", e));
                         }
+                        self.log_error(format!("Failed to load owners: {}", e));
                     }
                 }
             }
             ViewLevel::Repositories { ref owner } => {
-                if !self.workflows.repositories.data.is_loaded() {
-                    self.workflows.repositories.set_loading();
-                    let owner = owner.clone();
-                    let result =
-                        Self::fetch_repositories(self.github_client.as_mut().unwrap(), &owner)
-                            .await;
-                    match result {
-                        Ok((repos, count)) => {
-                            self.workflows.repositories.set_loaded(repos, count);
+                let owner = owner.clone();
+                // Load cached repos first for instant display
+                let has_cache = if !self.workflows.repositories.data.is_loaded() {
+                    if let Some(path) = cache::repos_list_path(&owner) {
+                        if let Ok(Some(cached)) =
+                            cache::read_cached::<Vec<crate::github::Repository>>(&path)
+                        {
+                            let count = cached.data.len() as u64;
+                            self.workflows.repositories.set_loaded(cached.data, count);
+                            true
+                        } else {
+                            self.workflows.repositories.set_loading();
+                            false
                         }
-                        Err(e) => {
+                    } else {
+                        self.workflows.repositories.set_loading();
+                        false
+                    }
+                } else {
+                    true
+                };
+
+                // Always fetch fresh data and update cache
+                let result =
+                    Self::fetch_repositories(self.github_client.as_mut().unwrap(), &owner).await;
+                match result {
+                    Ok((repos, count)) => {
+                        if let Some(path) = cache::repos_list_path(&owner) {
+                            let _ = cache::write_cached(&path, &repos, false);
+                        }
+                        self.workflows.repositories.set_loaded(repos, count);
+                    }
+                    Err(e) => {
+                        if !has_cache {
                             self.workflows.repositories.set_error(e.to_string());
-                            self.log_error(format!("Failed to load repositories: {}", e));
                         }
+                        self.log_error(format!("Failed to load repositories: {}", e));
                     }
                 }
             }
@@ -1203,24 +1250,48 @@ impl App {
                 ref owner,
                 ref repo,
             } => {
-                if !self.workflows.workflows.data.is_loaded() {
-                    self.workflows.workflows.set_loading();
-                    let owner = owner.clone();
-                    let repo = repo.clone();
-                    let result = self
-                        .github_client
-                        .as_mut()
-                        .unwrap()
-                        .get_workflows(&owner, &repo, 1, 30)
-                        .await;
-                    match result {
-                        Ok((workflows, count)) => {
-                            self.workflows.workflows.set_loaded(workflows, count);
+                let owner = owner.clone();
+                let repo = repo.clone();
+                // Load cached workflows first for instant display
+                let has_cache = if !self.workflows.workflows.data.is_loaded() {
+                    if let Some(path) = cache::workflows_list_path(&owner, &repo) {
+                        if let Ok(Some(cached)) =
+                            cache::read_cached::<Vec<crate::github::Workflow>>(&path)
+                        {
+                            let count = cached.data.len() as u64;
+                            self.workflows.workflows.set_loaded(cached.data, count);
+                            true
+                        } else {
+                            self.workflows.workflows.set_loading();
+                            false
                         }
-                        Err(e) => {
+                    } else {
+                        self.workflows.workflows.set_loading();
+                        false
+                    }
+                } else {
+                    true
+                };
+
+                // Always fetch fresh data and update cache
+                let result = self
+                    .github_client
+                    .as_mut()
+                    .unwrap()
+                    .get_workflows(&owner, &repo, 1, 30)
+                    .await;
+                match result {
+                    Ok((workflows, count)) => {
+                        if let Some(path) = cache::workflows_list_path(&owner, &repo) {
+                            let _ = cache::write_cached(&path, &workflows, false);
+                        }
+                        self.workflows.workflows.set_loaded(workflows, count);
+                    }
+                    Err(e) => {
+                        if !has_cache {
                             self.workflows.workflows.set_error(e.to_string());
-                            self.log_error(format!("Failed to load workflows: {}", e));
                         }
+                        self.log_error(format!("Failed to load workflows: {}", e));
                     }
                 }
             }
@@ -1230,78 +1301,156 @@ impl App {
                 workflow_id,
                 ..
             } => {
-                if !self.workflows.runs.data.is_loaded() {
-                    self.workflows.runs.set_loading();
-                    let owner = owner.clone();
-                    let repo = repo.clone();
-                    let result = self
-                        .github_client
-                        .as_mut()
-                        .unwrap()
-                        .get_workflow_runs_for_workflow(&owner, &repo, workflow_id, 1, 30)
-                        .await;
-                    match result {
-                        Ok((runs, count)) => {
-                            self.workflows.runs.set_loaded(runs, count);
+                let owner = owner.clone();
+                let repo = repo.clone();
+                // Load cached runs first for instant display
+                let has_cache = if !self.workflows.runs.data.is_loaded() {
+                    if let Some(path) = cache::runs_list_path(&owner, &repo, workflow_id) {
+                        if let Ok(Some(cached)) =
+                            cache::read_cached::<Vec<crate::github::WorkflowRun>>(&path)
+                        {
+                            let count = cached.data.len() as u64;
+                            self.workflows.runs.set_loaded(cached.data, count);
+                            true
+                        } else {
+                            self.workflows.runs.set_loading();
+                            false
                         }
-                        Err(e) => {
+                    } else {
+                        self.workflows.runs.set_loading();
+                        false
+                    }
+                } else {
+                    true
+                };
+
+                // Always fetch fresh data and update cache
+                let result = self
+                    .github_client
+                    .as_mut()
+                    .unwrap()
+                    .get_workflow_runs_for_workflow(&owner, &repo, workflow_id, 1, 30)
+                    .await;
+                match result {
+                    Ok((runs, count)) => {
+                        if let Some(path) = cache::runs_list_path(&owner, &repo, workflow_id) {
+                            let _ = cache::write_cached(&path, &runs, false);
+                        }
+                        self.workflows.runs.set_loaded(runs, count);
+                    }
+                    Err(e) => {
+                        if !has_cache {
                             self.workflows.runs.set_error(e.to_string());
-                            self.log_error(format!("Failed to load runs: {}", e));
                         }
+                        self.log_error(format!("Failed to load runs: {}", e));
                     }
                 }
             }
             ViewLevel::Jobs {
                 ref owner,
                 ref repo,
+                workflow_id,
                 run_id,
                 ..
             } => {
-                if !self.workflows.jobs.data.is_loaded() {
-                    self.workflows.jobs.set_loading();
-                    let owner = owner.clone();
-                    let repo = repo.clone();
-                    let result = self
-                        .github_client
-                        .as_mut()
-                        .unwrap()
-                        .get_jobs(&owner, &repo, run_id, 1, 30)
-                        .await;
-                    match result {
-                        Ok((jobs, count)) => {
-                            self.workflows.jobs.set_loaded(jobs, count);
+                let owner = owner.clone();
+                let repo = repo.clone();
+                // Load cached jobs first for instant display
+                let has_cache = if !self.workflows.jobs.data.is_loaded() {
+                    if let Some(path) = cache::jobs_list_path(&owner, &repo, workflow_id, run_id) {
+                        if let Ok(Some(cached)) =
+                            cache::read_cached::<Vec<crate::github::Job>>(&path)
+                        {
+                            let count = cached.data.len() as u64;
+                            self.workflows.jobs.set_loaded(cached.data, count);
+                            true
+                        } else {
+                            self.workflows.jobs.set_loading();
+                            false
                         }
-                        Err(e) => {
+                    } else {
+                        self.workflows.jobs.set_loading();
+                        false
+                    }
+                } else {
+                    true
+                };
+
+                // Always fetch fresh data and update cache
+                let result = self
+                    .github_client
+                    .as_mut()
+                    .unwrap()
+                    .get_jobs(&owner, &repo, run_id, 1, 30)
+                    .await;
+                match result {
+                    Ok((jobs, count)) => {
+                        if let Some(path) =
+                            cache::jobs_list_path(&owner, &repo, workflow_id, run_id)
+                        {
+                            let _ = cache::write_cached(&path, &jobs, false);
+                        }
+                        self.workflows.jobs.set_loaded(jobs, count);
+                    }
+                    Err(e) => {
+                        if !has_cache {
                             self.workflows.jobs.set_error(e.to_string());
-                            self.log_error(format!("Failed to load jobs: {}", e));
                         }
+                        self.log_error(format!("Failed to load jobs: {}", e));
                     }
                 }
             }
             ViewLevel::Logs {
                 ref owner,
                 ref repo,
+                workflow_id,
+                run_id,
                 job_id,
                 ..
             } => {
-                if !self.workflows.log_content.is_loaded() {
-                    self.workflows.log_content = LoadingState::Loading;
-                    let owner = owner.clone();
-                    let repo = repo.clone();
-                    let result = self
-                        .github_client
-                        .as_mut()
-                        .unwrap()
-                        .get_job_logs(&owner, &repo, job_id)
-                        .await;
-                    match result {
-                        Ok(logs) => {
+                let owner = owner.clone();
+                let repo = repo.clone();
+                // Load cached logs first for instant display
+                let has_cache = if !self.workflows.log_content.is_loaded() {
+                    if let Some(path) =
+                        cache::job_log_path(&owner, &repo, workflow_id, run_id, job_id)
+                    {
+                        if let Ok(Some(logs)) = cache::read_text(&path) {
                             self.workflows.log_content = LoadingState::Loaded(logs);
+                            true
+                        } else {
+                            self.workflows.log_content = LoadingState::Loading;
+                            false
                         }
-                        Err(e) => {
+                    } else {
+                        self.workflows.log_content = LoadingState::Loading;
+                        false
+                    }
+                } else {
+                    true
+                };
+
+                // Always fetch fresh data and update cache
+                let result = self
+                    .github_client
+                    .as_mut()
+                    .unwrap()
+                    .get_job_logs(&owner, &repo, job_id)
+                    .await;
+                match result {
+                    Ok(logs) => {
+                        if let Some(path) =
+                            cache::job_log_path(&owner, &repo, workflow_id, run_id, job_id)
+                        {
+                            let _ = cache::write_text(&path, &logs);
+                        }
+                        self.workflows.log_content = LoadingState::Loaded(logs);
+                    }
+                    Err(e) => {
+                        if !has_cache {
                             self.workflows.log_content = LoadingState::Error(e.to_string());
-                            self.log_error(format!("Failed to load logs: {}", e));
                         }
+                        self.log_error(format!("Failed to load logs: {}", e));
                     }
                 }
             }

@@ -20,6 +20,31 @@ pub fn runners_repos_path() -> Option<PathBuf> {
     cache_dir().map(|dir| dir.join("runners_repos.json"))
 }
 
+/// Path to the cached owners list.
+pub fn owners_list_path() -> Option<PathBuf> {
+    cache_dir().map(|dir| dir.join("owners.json"))
+}
+
+/// Path to the cached repositories list for an owner.
+pub fn repos_list_path(owner: &str) -> Option<PathBuf> {
+    owner_dir(owner).map(|dir| dir.join("repos.json"))
+}
+
+/// Path to the cached workflows list for a repository.
+pub fn workflows_list_path(owner: &str, repo: &str) -> Option<PathBuf> {
+    repo_dir(owner, repo).map(|dir| dir.join("workflows.json"))
+}
+
+/// Path to the cached runs list for a workflow.
+pub fn runs_list_path(owner: &str, repo: &str, workflow_id: u64) -> Option<PathBuf> {
+    workflow_dir(owner, repo, workflow_id).map(|dir| dir.join("runs.json"))
+}
+
+/// Path to the cached jobs list for a run.
+pub fn jobs_list_path(owner: &str, repo: &str, workflow_id: u64, run_id: u64) -> Option<PathBuf> {
+    run_dir(owner, repo, workflow_id, run_id).map(|dir| dir.join("jobs.json"))
+}
+
 /// Path to an owner's directory.
 pub fn owner_dir(owner: &str) -> Option<PathBuf> {
     cache_dir().map(|dir| dir.join("owners").join(sanitize_name(owner)))
