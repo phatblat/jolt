@@ -2,6 +2,7 @@
 // Initializes terminal, runs the app, and handles cleanup.
 
 mod app;
+mod cache;
 mod error;
 mod github;
 mod ui;
