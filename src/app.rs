@@ -722,19 +722,65 @@ impl App {
 
     /// Get GitHub URL for current Workflows tab view.
     fn get_workflows_github_url(&self) -> Option<String> {
-        match self.workflows.nav.current() {
-            ViewLevel::Owners => self
-                .workflows
-                .owners
-                .selected_item()
-                .map(|owner| format!("https://github.com/{}", owner.login)),
-            ViewLevel::Repositories { owner } => self
-                .workflows
-                .repositories
-                .selected_item()
-                .map(|repo| format!("https://github.com/{}/{}", owner, repo.name)),
-            ViewLevel::Workflows { owner, repo } => {
-                self.workflows.workflows.selected_item().map(|workflow| {
+        match self.workflows.nav.current().clone() {
+            ViewLevel::Owners => {
+                let index = self.workflows.owners.selected()?;
+                let data = self.workflows.owners.data.data()?;
+                let mut sorted: Vec<_> = data.items.iter().collect();
+                sorted.sort_by(|a, b| {
+                    let a_fav = self.favorite_owners.contains(&a.login);
+                    let b_fav = self.favorite_owners.contains(&b.login);
+                    match (a_fav, b_fav) {
+                        (true, false) => std::cmp::Ordering::Less,
+                        (false, true) => std::cmp::Ordering::Greater,
+                        _ => a.login.cmp(&b.login),
+                    }
+                });
+                sorted
+                    .get(index)
+                    .map(|owner| format!("https://github.com/{}", owner.login))
+            }
+            ViewLevel::Repositories { ref owner } => {
+                let index = self.workflows.repositories.selected()?;
+                let data = self.workflows.repositories.data.data()?;
+                let mut sorted: Vec<_> = data.items.iter().collect();
+                let owner = owner.clone();
+                sorted.sort_by(|a, b| {
+                    let a_key = format!("{}/{}", owner, a.name);
+                    let b_key = format!("{}/{}", owner, b.name);
+                    let a_fav = self.favorite_repos.contains(&a_key);
+                    let b_fav = self.favorite_repos.contains(&b_key);
+                    match (a_fav, b_fav) {
+                        (true, false) => std::cmp::Ordering::Less,
+                        (false, true) => std::cmp::Ordering::Greater,
+                        _ => a.name.cmp(&b.name),
+                    }
+                });
+                sorted
+                    .get(index)
+                    .map(|repo| format!("https://github.com/{}/{}", owner, repo.name))
+            }
+            ViewLevel::Workflows {
+                ref owner,
+                ref repo,
+            } => {
+                let index = self.workflows.workflows.selected()?;
+                let data = self.workflows.workflows.data.data()?;
+                let mut sorted: Vec<_> = data.items.iter().collect();
+                let owner = owner.clone();
+                let repo = repo.clone();
+                sorted.sort_by(|a, b| {
+                    let a_key = format!("{}/{}/{}", owner, repo, a.id);
+                    let b_key = format!("{}/{}/{}", owner, repo, b.id);
+                    let a_fav = self.favorite_workflows.contains(&a_key);
+                    let b_fav = self.favorite_workflows.contains(&b_key);
+                    match (a_fav, b_fav) {
+                        (true, false) => std::cmp::Ordering::Less,
+                        (false, true) => std::cmp::Ordering::Greater,
+                        _ => a.name.cmp(&b.name),
+                    }
+                });
+                sorted.get(index).map(|workflow| {
                     format!(
                         "https://github.com/{}/{}/actions/workflows/{}",
                         owner,
@@ -775,12 +821,26 @@ impl App {
 
     /// Get GitHub URL for current Runners tab view.
     fn get_runners_github_url(&self) -> Option<String> {
-        match self.runners.nav.current() {
-            RunnersViewLevel::Repositories => self
-                .runners
-                .repositories
-                .selected_item()
-                .map(|repo| format!("https://github.com/{}/{}", repo.owner.login, repo.name)),
+        match self.runners.nav.current().clone() {
+            RunnersViewLevel::Repositories => {
+                let index = self.runners.repositories.selected()?;
+                let data = self.runners.repositories.data.data()?;
+                let mut sorted: Vec<_> = data.items.iter().collect();
+                sorted.sort_by(|a, b| {
+                    let a_key = format!("{}/{}", a.owner.login, a.name);
+                    let b_key = format!("{}/{}", b.owner.login, b.name);
+                    let a_fav = self.favorite_repos.contains(&a_key);
+                    let b_fav = self.favorite_repos.contains(&b_key);
+                    match (a_fav, b_fav) {
+                        (true, false) => std::cmp::Ordering::Less,
+                        (false, true) => std::cmp::Ordering::Greater,
+                        _ => a_key.cmp(&b_key),
+                    }
+                });
+                sorted
+                    .get(index)
+                    .map(|repo| format!("https://github.com/{}/{}", repo.owner.login, repo.name))
+            }
             RunnersViewLevel::Runners { owner, repo } => Some(format!(
                 "https://github.com/{}/{}/settings/actions/runners",
                 owner, repo
