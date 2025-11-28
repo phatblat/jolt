@@ -611,7 +611,11 @@ pub fn render_runners_list(
                     .collect();
 
                 let list_widget = List::new(items)
-                    .block(Block::default().borders(Borders::ALL).title(" Runners "))
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title(" Self-Hosted Runners "),
+                    )
                     .highlight_style(
                         Style::default()
                             .bg(Color::DarkGray)

@@ -459,6 +459,42 @@ impl App {
                 }
             }
         }
+
+        // Check if runners list needs auto-refresh
+        if self.active_tab == Tab::Runners {
+            if let RunnersViewLevel::Runners {
+                ref owner,
+                ref repo,
+            } = self.runners.nav.current().clone()
+            {
+                if let Some(next_refresh) = self.runners.runners_next_refresh {
+                    if std::time::Instant::now() >= next_refresh {
+                        // Time to refresh - force reload
+                        self.runners.runners.set_loading();
+                        let owner = owner.clone();
+                        let repo = repo.clone();
+                        let result = self
+                            .github_client
+                            .as_mut()
+                            .unwrap()
+                            .get_runners(&owner, &repo, 1, 30)
+                            .await;
+                        match result {
+                            Ok((runners, count)) => {
+                                self.runners.runners.set_loaded(runners, count);
+                            }
+                            Err(e) => {
+                                self.runners.runners.set_error(e.to_string());
+                            }
+                        }
+                        // Schedule next refresh
+                        self.runners.runners_next_refresh =
+                            Some(std::time::Instant::now() + std::time::Duration::from_secs(60));
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -768,7 +804,9 @@ impl App {
             Tab::Runners => self.get_runners_github_url(),
             Tab::Analyze => {
                 // Open GitHub URL for selected analysis session
-                self.analyze.selected_session().map(|s| s.github_url.clone())
+                self.analyze
+                    .selected_session()
+                    .map(|s| s.github_url.clone())
             }
             Tab::Sync => None,
         };
@@ -853,35 +891,45 @@ impl App {
     /// Save from Workflows tab log viewer to Analyze.
     fn save_workflows_to_analyze(&mut self) {
         // Extract context from current view level
-        let (owner, repo, workflow_id, workflow_name, run_id, run_number, job_id, job_name, job_status, job_conclusion) =
-            match self.workflows.nav.current() {
-                ViewLevel::Logs {
-                    owner,
-                    repo,
-                    workflow_id,
-                    run_id,
-                    job_id,
-                    job_name,
-                    job_status,
-                    job_conclusion,
-                } => {
-                    // Get run_number and workflow_name from navigation stack
-                    let (run_number, workflow_name) = self.get_workflows_run_context();
-                    (
-                        owner.clone(),
-                        repo.clone(),
-                        Some(*workflow_id),
-                        workflow_name,
-                        *run_id,
-                        run_number,
-                        *job_id,
-                        job_name.clone(),
-                        *job_status,
-                        *job_conclusion,
-                    )
-                }
-                _ => return, // Not in log view
-            };
+        let (
+            owner,
+            repo,
+            workflow_id,
+            workflow_name,
+            run_id,
+            run_number,
+            job_id,
+            job_name,
+            job_status,
+            job_conclusion,
+        ) = match self.workflows.nav.current() {
+            ViewLevel::Logs {
+                owner,
+                repo,
+                workflow_id,
+                run_id,
+                job_id,
+                job_name,
+                job_status,
+                job_conclusion,
+            } => {
+                // Get run_number and workflow_name from navigation stack
+                let (run_number, workflow_name) = self.get_workflows_run_context();
+                (
+                    owner.clone(),
+                    repo.clone(),
+                    Some(*workflow_id),
+                    workflow_name,
+                    *run_id,
+                    run_number,
+                    *job_id,
+                    job_name.clone(),
+                    *job_status,
+                    *job_conclusion,
+                )
+            }
+            _ => return, // Not in log view
+        };
 
         // Get log content
         let logs = match &self.workflows.log_content {
@@ -893,9 +941,13 @@ impl App {
         let (sel_start, sel_end) = self.workflows.log_selection_range();
 
         // Check for existing session that overlaps with selected lines
-        if let Some(existing) = self.analyze.find_overlapping(job_id, run_id, sel_start, sel_end) {
+        if let Some(existing) = self
+            .analyze
+            .find_overlapping(job_id, run_id, sel_start, sel_end)
+        {
             let session_id = existing.id.clone();
-            self.sync.log_info("Selection overlaps existing session - navigating");
+            self.sync
+                .log_info("Selection overlaps existing session - navigating");
             self.active_tab = Tab::Analyze;
             self.analyze.enter_detail_by_id(&session_id);
             return;
@@ -996,9 +1048,13 @@ impl App {
         let (sel_start, sel_end) = self.runners.log_selection_range();
 
         // Check for existing session that overlaps with selected lines
-        if let Some(existing) = self.analyze.find_overlapping(job_id, run_id, sel_start, sel_end) {
+        if let Some(existing) = self
+            .analyze
+            .find_overlapping(job_id, run_id, sel_start, sel_end)
+        {
             let session_id = existing.id.clone();
-            self.sync.log_info("Selection overlaps existing session - navigating");
+            self.sync
+                .log_info("Selection overlaps existing session - navigating");
             self.active_tab = Tab::Analyze;
             self.analyze.enter_detail_by_id(&session_id);
             return;
@@ -1075,7 +1131,9 @@ impl App {
 
         for node in &breadcrumbs {
             match &node.level {
-                ViewLevel::Runs { workflow_name: wn, .. } => {
+                ViewLevel::Runs {
+                    workflow_name: wn, ..
+                } => {
                     workflow_name = Some(wn.clone());
                 }
                 ViewLevel::Jobs { run_number: rn, .. } => {
@@ -1130,9 +1188,10 @@ impl App {
             .data()
             .and_then(|data| {
                 if let ViewLevel::Logs { job_id, .. } = self.workflows.nav.current() {
-                    data.items.iter().find(|j| j.id == *job_id).map(|job| {
-                        (job.runner_name.clone(), Vec::new())
-                    })
+                    data.items
+                        .iter()
+                        .find(|j| j.id == *job_id)
+                        .map(|job| (job.runner_name.clone(), Vec::new()))
                 } else {
                     None
                 }
@@ -1180,9 +1239,10 @@ impl App {
             .data()
             .and_then(|data| {
                 if let RunnersViewLevel::Logs { job_id, .. } = self.runners.nav.current() {
-                    data.items.iter().find(|j| j.id == *job_id).map(|job| {
-                        (job.runner_name.clone(), Vec::new())
-                    })
+                    data.items
+                        .iter()
+                        .find(|j| j.id == *job_id)
+                        .map(|job| (job.runner_name.clone(), Vec::new()))
                 } else {
                     None
                 }
@@ -1825,6 +1885,12 @@ impl App {
 
     /// Handle Enter in Runners tab.
     async fn handle_runners_enter(&mut self) {
+        // Clear auto-refresh timer when navigating away from runners list
+        if !matches!(self.runners.nav.current(), RunnersViewLevel::Runners { .. }) {
+            self.runners.runners_view_entered_at = None;
+            self.runners.runners_next_refresh = None;
+        }
+
         // Note: For views with favorites, we must sort to match the displayed order
         let next_level = match self.runners.nav.current().clone() {
             RunnersViewLevel::Repositories => {
@@ -1948,6 +2014,11 @@ impl App {
             }
             Tab::Runners => {
                 if self.runners.go_back() {
+                    // Clear timer if we left the runners list view
+                    if !matches!(self.runners.nav.current(), RunnersViewLevel::Runners { .. }) {
+                        self.runners.runners_view_entered_at = None;
+                        self.runners.runners_next_refresh = None;
+                    }
                     self.load_runners_view().await;
                 }
             }
@@ -1976,6 +2047,12 @@ impl App {
 
     /// Called when switching tabs.
     async fn on_tab_change(&mut self) {
+        // Clear runners auto-refresh timer when leaving Runners tab
+        if self.active_tab != Tab::Runners {
+            self.runners.runners_view_entered_at = None;
+            self.runners.runners_next_refresh = None;
+        }
+
         match self.active_tab {
             Tab::Workflows => self.load_current_view().await,
             Tab::Runners => self.load_runners_view().await,
@@ -2334,6 +2411,14 @@ impl App {
                 ref owner,
                 ref repo,
             } => {
+                // Start timer when entering runners view
+                if self.runners.runners_view_entered_at.is_none() {
+                    let now = std::time::Instant::now();
+                    self.runners.runners_view_entered_at = Some(now);
+                    self.runners.runners_next_refresh =
+                        Some(now + std::time::Duration::from_secs(60));
+                }
+
                 if !self.runners.runners.data.is_loaded() {
                     self.runners.runners.set_loading();
                     let owner = owner.clone();

@@ -150,6 +150,10 @@ pub struct RunnersTabState {
     pub log_selection_anchor: usize,
     /// Selection cursor line in log viewer (0-indexed).
     pub log_selection_cursor: usize,
+    /// When we entered the runners list view (for auto-refresh).
+    pub runners_view_entered_at: Option<std::time::Instant>,
+    /// When to next refresh the runners list.
+    pub runners_next_refresh: Option<std::time::Instant>,
 }
 
 impl Default for RunnersTabState {
@@ -165,6 +169,8 @@ impl Default for RunnersTabState {
             log_scroll_y: 0,
             log_selection_anchor: 0,
             log_selection_cursor: 0,
+            runners_view_entered_at: None,
+            runners_next_refresh: None,
         }
     }
 }

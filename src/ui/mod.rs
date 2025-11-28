@@ -30,11 +30,28 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     match app.active_tab {
         Tab::Workflows => {
             let breadcrumbs = app.workflows.nav.breadcrumbs();
-            breadcrumb::draw_breadcrumb(frame, &breadcrumbs, chunks[1]);
+            // Get timestamp from the current view's data
+            let timestamp = match app.workflows.nav.current() {
+                ViewLevel::Owners => app.workflows.owners.last_updated,
+                ViewLevel::Repositories { .. } => app.workflows.repositories.last_updated,
+                ViewLevel::Workflows { .. } => app.workflows.workflows.last_updated,
+                ViewLevel::Runs { .. } => app.workflows.runs.last_updated,
+                ViewLevel::Jobs { .. } => app.workflows.jobs.last_updated,
+                ViewLevel::Logs { .. } => None, // Logs don't use SelectableList
+            };
+            breadcrumb::draw_breadcrumb(frame, &breadcrumbs, chunks[1], timestamp);
         }
         Tab::Runners => {
             let breadcrumbs = app.runners.nav.breadcrumbs();
-            breadcrumb::draw_runners_breadcrumb(frame, &breadcrumbs, chunks[1]);
+            // Get timestamp from the current view's data
+            let timestamp = match app.runners.nav.current() {
+                RunnersViewLevel::Repositories => app.runners.repositories.last_updated,
+                RunnersViewLevel::Runners { .. } => app.runners.runners.last_updated,
+                RunnersViewLevel::Runs { .. } => app.runners.runs.last_updated,
+                RunnersViewLevel::Jobs { .. } => app.runners.jobs.last_updated,
+                RunnersViewLevel::Logs { .. } => None, // Logs don't use SelectableList
+            };
+            breadcrumb::draw_runners_breadcrumb(frame, &breadcrumbs, chunks[1], timestamp);
         }
         Tab::Analyze | Tab::Sync => {
             let block = Block::default()
@@ -364,10 +381,7 @@ fn draw_runners_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
                             Style::default().fg(Color::DarkGray),
                         )
                     } else if is_in_session {
-                        (
-                            Style::default(),
-                            Style::default().fg(Color::Magenta),
-                        )
+                        (Style::default(), Style::default().fg(Color::Magenta))
                     } else {
                         (Style::default(), Style::default().fg(Color::DarkGray))
                     };
@@ -708,10 +722,7 @@ fn draw_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
                             Style::default().fg(Color::DarkGray),
                         )
                     } else if is_in_session {
-                        (
-                            Style::default(),
-                            Style::default().fg(Color::Magenta),
-                        )
+                        (Style::default(), Style::default().fg(Color::Magenta))
                     } else {
                         (Style::default(), Style::default().fg(Color::DarkGray))
                     };

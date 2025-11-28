@@ -91,6 +91,7 @@ pub struct SelectableList<T> {
     pub data: LoadingState<PaginatedList<T>>,
     pub list_state: ListState,
     pub filter: Option<String>,
+    pub last_updated: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl<T> Default for SelectableList<T> {
@@ -99,6 +100,7 @@ impl<T> Default for SelectableList<T> {
             data: LoadingState::Idle,
             list_state: ListState::default(),
             filter: None,
+            last_updated: None,
         }
     }
 }
@@ -185,6 +187,7 @@ impl<T> SelectableList<T> {
     /// Set loaded data.
     pub fn set_loaded(&mut self, items: Vec<T>, total_count: u64) {
         self.data = LoadingState::Loaded(PaginatedList::new(items, total_count));
+        self.last_updated = Some(chrono::Utc::now());
         self.reset_selection();
     }
 
