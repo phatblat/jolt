@@ -1639,12 +1639,22 @@ impl App {
                 repo,
                 run_id,
                 ..
-            } => self.workflows.jobs.selected_item().map(|job| {
-                format!(
-                    "https://github.com/{}/{}/actions/runs/{}/job/{}",
-                    owner, repo, run_id, job.id
-                )
-            }),
+            } => {
+                // Use flattened list to get the selected job (main or sub-item)
+                if let Some(index) = self.workflows.jobs.selected() {
+                    if let Some(list_item) = self.workflows.job_list_items.get(index) {
+                        let job = list_item.get_job(&self.workflows.job_groups);
+                        Some(format!(
+                            "https://github.com/{}/{}/actions/runs/{}/job/{}",
+                            owner, repo, run_id, job.id
+                        ))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
             ViewLevel::Logs {
                 owner,
                 repo,
@@ -1848,20 +1858,28 @@ impl App {
                 workflow_id,
                 run_id,
                 ..
-            } => self
-                .workflows
-                .jobs
-                .selected_item()
-                .map(|job| ViewLevel::Logs {
-                    owner,
-                    repo,
-                    workflow_id,
-                    run_id,
-                    job_id: job.id,
-                    job_name: job.name.clone(),
-                    job_status: job.status,
-                    job_conclusion: job.conclusion,
-                }),
+            } => {
+                // Use flattened list to get the selected job (main or sub-item)
+                if let Some(index) = self.workflows.jobs.selected() {
+                    if let Some(list_item) = self.workflows.job_list_items.get(index) {
+                        let job = list_item.get_job(&self.workflows.job_groups);
+                        Some(ViewLevel::Logs {
+                            owner,
+                            repo,
+                            workflow_id,
+                            run_id,
+                            job_id: job.id,
+                            job_name: job.name.clone(),
+                            job_status: job.status,
+                            job_conclusion: job.conclusion,
+                        })
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
             ViewLevel::Logs { .. } => None, // Can't drill down further
         };
 
@@ -1967,19 +1985,27 @@ impl App {
                 repo,
                 run_id,
                 ..
-            } => self
-                .runners
-                .jobs
-                .selected_item()
-                .map(|job| RunnersViewLevel::Logs {
-                    owner,
-                    repo,
-                    run_id,
-                    job_id: job.id,
-                    job_name: job.name.clone(),
-                    job_status: job.status,
-                    job_conclusion: job.conclusion,
-                }),
+            } => {
+                // Use flattened list to get the selected job (main or sub-item)
+                if let Some(index) = self.runners.jobs.selected() {
+                    if let Some(list_item) = self.runners.job_list_items.get(index) {
+                        let job = list_item.get_job(&self.runners.job_groups);
+                        Some(RunnersViewLevel::Logs {
+                            owner,
+                            repo,
+                            run_id,
+                            job_id: job.id,
+                            job_name: job.name.clone(),
+                            job_status: job.status,
+                            job_conclusion: job.conclusion,
+                        })
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
             RunnersViewLevel::Logs { .. } => None,
         };
 
@@ -2248,7 +2274,12 @@ impl App {
                     if let Ok(Some(cached)) = cache::read_cached::<Vec<crate::github::Job>>(&path) {
                         if cached.is_valid(cache::DEFAULT_TTL) {
                             let count = cached.data.len() as u64;
-                            self.workflows.jobs.set_loaded(cached.data, count);
+                            self.workflows.jobs.set_loaded(cached.data.clone(), count);
+                            // Group jobs by name and create flattened list
+                            self.workflows.job_groups =
+                                crate::github::JobGroup::group_by_name(cached.data);
+                            self.workflows.job_list_items =
+                                crate::github::JobListItem::flatten(&self.workflows.job_groups);
                             return;
                         }
                     }
@@ -2268,7 +2299,11 @@ impl App {
                         {
                             let _ = cache::write_cached(&path, &jobs, false);
                         }
-                        self.workflows.jobs.set_loaded(jobs, count);
+                        self.workflows.jobs.set_loaded(jobs.clone(), count);
+                        // Group jobs by name and create flattened list
+                        self.workflows.job_groups = crate::github::JobGroup::group_by_name(jobs);
+                        self.workflows.job_list_items =
+                            crate::github::JobListItem::flatten(&self.workflows.job_groups);
                     }
                     Err(e) => {
                         self.workflows.jobs.set_error(e.to_string());
@@ -2485,7 +2520,11 @@ impl App {
                         .await;
                     match result {
                         Ok((jobs, count)) => {
-                            self.runners.jobs.set_loaded(jobs, count);
+                            self.runners.jobs.set_loaded(jobs.clone(), count);
+                            // Group jobs by name and create flattened list
+                            self.runners.job_groups = crate::github::JobGroup::group_by_name(jobs);
+                            self.runners.job_list_items =
+                                crate::github::JobListItem::flatten(&self.runners.job_groups);
                         }
                         Err(e) => {
                             self.runners.jobs.set_error(e.to_string());

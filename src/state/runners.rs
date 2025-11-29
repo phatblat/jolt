@@ -3,7 +3,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::github::{EnrichedRunner, Job, Repository, RunConclusion, RunStatus, WorkflowRun};
+use crate::github::{
+    EnrichedRunner, Job, JobGroup, JobListItem, Repository, RunConclusion, RunStatus, WorkflowRun,
+};
 
 use super::workflows::{LoadingState, SelectableList};
 
@@ -138,8 +140,12 @@ pub struct RunnersTabState {
     pub runners: SelectableList<EnrichedRunner>,
     /// Workflow runs list.
     pub runs: SelectableList<WorkflowRun>,
-    /// Jobs list for current run.
+    /// Jobs list for current run (raw jobs before grouping).
     pub jobs: SelectableList<Job>,
+    /// Grouped jobs with attempts.
+    pub job_groups: Vec<JobGroup>,
+    /// Flattened job list items for display.
+    pub job_list_items: Vec<JobListItem>,
     /// Log content for current job.
     pub log_content: LoadingState<String>,
     /// Horizontal scroll offset for log viewer.
@@ -166,6 +172,8 @@ impl Default for RunnersTabState {
             runners: SelectableList::new(),
             runs: SelectableList::new(),
             jobs: SelectableList::new(),
+            job_groups: Vec::new(),
+            job_list_items: Vec::new(),
             log_content: LoadingState::Idle,
             log_scroll_x: 0,
             log_scroll_y: 0,
@@ -200,15 +208,21 @@ impl RunnersTabState {
                     self.runners = SelectableList::new();
                     self.runs = SelectableList::new();
                     self.jobs = SelectableList::new();
+                    self.job_groups = Vec::new();
+                    self.job_list_items = Vec::new();
                     self.log_content = LoadingState::Idle;
                 }
                 RunnersViewLevel::Runs { .. } => {
                     self.runs = SelectableList::new();
                     self.jobs = SelectableList::new();
+                    self.job_groups = Vec::new();
+                    self.job_list_items = Vec::new();
                     self.log_content = LoadingState::Idle;
                 }
                 RunnersViewLevel::Jobs { .. } => {
                     self.jobs = SelectableList::new();
+                    self.job_groups = Vec::new();
+                    self.job_list_items = Vec::new();
                     self.log_content = LoadingState::Idle;
                 }
                 RunnersViewLevel::Logs { .. } => {
@@ -303,7 +317,11 @@ impl RunnersTabState {
             RunnersViewLevel::Repositories => self.repositories = SelectableList::new(),
             RunnersViewLevel::Runners { .. } => self.runners = SelectableList::new(),
             RunnersViewLevel::Runs { .. } => self.runs = SelectableList::new(),
-            RunnersViewLevel::Jobs { .. } => self.jobs = SelectableList::new(),
+            RunnersViewLevel::Jobs { .. } => {
+                self.jobs = SelectableList::new();
+                self.job_groups = Vec::new();
+                self.job_list_items = Vec::new();
+            }
             RunnersViewLevel::Logs { .. } => {
                 self.log_content = LoadingState::Idle;
                 self.log_scroll_x = 0;

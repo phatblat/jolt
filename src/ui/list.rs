@@ -7,8 +7,8 @@ use chrono::{DateTime, Utc};
 use ratatui::{prelude::*, widgets::*};
 
 use crate::github::{
-    EnrichedRunner, Job, Owner, OwnerType, Repository, RunConclusion, RunStatus, RunnerStatus,
-    Workflow, WorkflowRun,
+    EnrichedRunner, Job, JobGroup, JobListItem, Owner, OwnerType, Repository, RunConclusion,
+    RunStatus, RunnerStatus, Workflow, WorkflowRun,
 };
 use crate::state::{LoadingState, SelectableList};
 
@@ -424,8 +424,14 @@ pub fn render_runs_list(frame: &mut Frame, list: &mut SelectableList<WorkflowRun
     }
 }
 
-/// Render jobs list.
-pub fn render_jobs_list(frame: &mut Frame, list: &mut SelectableList<Job>, area: Rect) {
+/// Render jobs list with hierarchical attempts.
+pub fn render_jobs_list(
+    frame: &mut Frame,
+    list: &mut SelectableList<Job>,
+    job_groups: &[JobGroup],
+    job_list_items: &[JobListItem],
+    area: Rect,
+) {
     match &list.data {
         LoadingState::Idle => render_empty(frame, area, "Press Enter to load"),
         LoadingState::Loading => render_loading(frame, area, "Loading jobs"),
@@ -433,11 +439,15 @@ pub fn render_jobs_list(frame: &mut Frame, list: &mut SelectableList<Job>, area:
         LoadingState::Loaded(data) => {
             if data.is_empty() {
                 render_empty(frame, area, "No jobs in this run");
+            } else if job_groups.is_empty() {
+                // Fallback: no grouping available yet
+                render_empty(frame, area, "Loading job attempts...");
             } else {
-                let items: Vec<ListItem> = data
-                    .items
+                let items: Vec<ListItem> = job_list_items
                     .iter()
-                    .map(|job| {
+                    .map(|list_item| {
+                        let job = list_item.get_job(job_groups);
+                        let is_sub_item = matches!(list_item, JobListItem::SubItem { .. });
                         let status_icon = match job.conclusion {
                             Some(RunConclusion::Success) => "✅",
                             Some(RunConclusion::Failure) => "❌",
@@ -473,7 +483,11 @@ pub fn render_jobs_list(frame: &mut Frame, list: &mut SelectableList<Job>, area:
                             }
                         };
 
+                        // Add indentation for sub-items
+                        let indent = if is_sub_item { "    " } else { "" };
+
                         let mut first_line = vec![
+                            Span::raw(indent),
                             Span::raw(format!("{} ", status_icon)),
                             Span::styled(&job.name, Style::default().fg(color)),
                             Span::styled(
@@ -483,7 +497,8 @@ pub fn render_jobs_list(frame: &mut Frame, list: &mut SelectableList<Job>, area:
                         ];
 
                         // For in-progress jobs, show additional info on separate lines
-                        if is_in_progress {
+                        // But not for sub-items (previous attempts)
+                        if is_in_progress && !is_sub_item {
                             let mut lines = vec![Line::from(first_line)];
 
                             // Show runner name on its own line

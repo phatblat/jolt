@@ -3,7 +3,7 @@
 
 use ratatui::widgets::ListState;
 
-use crate::github::{Job, Owner, Repository, Workflow, WorkflowRun};
+use crate::github::{Job, JobGroup, JobListItem, Owner, Repository, Workflow, WorkflowRun};
 
 use super::navigation::{NavigationStack, ViewLevel};
 
@@ -215,8 +215,12 @@ pub struct WorkflowsTabState {
     pub workflows: SelectableList<Workflow>,
     /// Workflow runs list for current workflow.
     pub runs: SelectableList<WorkflowRun>,
-    /// Jobs list for current run.
+    /// Jobs list for current run (raw jobs before grouping).
     pub jobs: SelectableList<Job>,
+    /// Grouped jobs with attempts.
+    pub job_groups: Vec<JobGroup>,
+    /// Flattened job list items for display.
+    pub job_list_items: Vec<JobListItem>,
     /// Log content for current job.
     pub log_content: LoadingState<String>,
     /// Horizontal scroll offset for log viewer.
@@ -238,6 +242,8 @@ impl Default for WorkflowsTabState {
             workflows: SelectableList::new(),
             runs: SelectableList::new(),
             jobs: SelectableList::new(),
+            job_groups: Vec::new(),
+            job_list_items: Vec::new(),
             log_content: LoadingState::Idle,
             log_scroll_x: 0,
             log_scroll_y: 0,
@@ -271,21 +277,29 @@ impl WorkflowsTabState {
                     self.workflows = SelectableList::new();
                     self.runs = SelectableList::new();
                     self.jobs = SelectableList::new();
+                    self.job_groups = Vec::new();
+                    self.job_list_items = Vec::new();
                     self.log_content = LoadingState::Idle;
                 }
                 ViewLevel::Workflows { .. } => {
                     self.workflows = SelectableList::new();
                     self.runs = SelectableList::new();
                     self.jobs = SelectableList::new();
+                    self.job_groups = Vec::new();
+                    self.job_list_items = Vec::new();
                     self.log_content = LoadingState::Idle;
                 }
                 ViewLevel::Runs { .. } => {
                     self.runs = SelectableList::new();
                     self.jobs = SelectableList::new();
+                    self.job_groups = Vec::new();
+                    self.job_list_items = Vec::new();
                     self.log_content = LoadingState::Idle;
                 }
                 ViewLevel::Jobs { .. } => {
                     self.jobs = SelectableList::new();
+                    self.job_groups = Vec::new();
+                    self.job_list_items = Vec::new();
                     self.log_content = LoadingState::Idle;
                 }
                 ViewLevel::Logs { .. } => {
@@ -383,7 +397,11 @@ impl WorkflowsTabState {
             ViewLevel::Repositories { .. } => self.repositories = SelectableList::new(),
             ViewLevel::Workflows { .. } => self.workflows = SelectableList::new(),
             ViewLevel::Runs { .. } => self.runs = SelectableList::new(),
-            ViewLevel::Jobs { .. } => self.jobs = SelectableList::new(),
+            ViewLevel::Jobs { .. } => {
+                self.jobs = SelectableList::new();
+                self.job_groups = Vec::new();
+                self.job_list_items = Vec::new();
+            }
             ViewLevel::Logs { .. } => {
                 self.log_content = LoadingState::Idle;
                 self.log_scroll_x = 0;
