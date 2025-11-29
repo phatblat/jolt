@@ -350,15 +350,6 @@ fn draw_runners_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
                         .iter()
                         .any(|(start, end, _)| i >= *start && i <= *end);
 
-                    // Gutter markers: bookmark for selection, bar for existing sessions
-                    let gutter_marker = if is_selected || is_cursor {
-                        "🔖"
-                    } else if is_in_session {
-                        "▎ "
-                    } else {
-                        "  "
-                    };
-
                     // Determine line style: cursor > selection > search match > session > normal
                     let (line_style, line_num_style) = if is_cursor {
                         (
@@ -386,15 +377,15 @@ fn draw_runners_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
                         (Style::default(), Style::default().fg(Color::DarkGray))
                     };
 
-                    let gutter_style = if is_in_session && !is_selected && !is_cursor {
-                        Style::default().fg(Color::Magenta)
+                    // Use bookmark emoji for session lines, line number for others
+                    let line_num_display = if is_in_session {
+                        format!("   🔖 │ ")
                     } else {
-                        Style::default()
+                        format!("{:>5} │ ", line_num)
                     };
 
                     Line::from(vec![
-                        Span::styled(gutter_marker, gutter_style),
-                        Span::styled(format!("{:>5} │ ", line_num), line_num_style),
+                        Span::styled(line_num_display, line_num_style),
                         Span::styled(line, line_style),
                     ])
                 })
@@ -691,15 +682,6 @@ fn draw_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
                         .iter()
                         .any(|(start, end, _)| i >= *start && i <= *end);
 
-                    // Gutter markers: bookmark for selection, bar for existing sessions
-                    let gutter_marker = if is_selected || is_cursor {
-                        "🔖"
-                    } else if is_in_session {
-                        "▎ "
-                    } else {
-                        "  "
-                    };
-
                     // Determine line style: cursor > selection > search match > session > normal
                     let (line_style, line_num_style) = if is_cursor {
                         (
@@ -727,15 +709,15 @@ fn draw_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
                         (Style::default(), Style::default().fg(Color::DarkGray))
                     };
 
-                    let gutter_style = if is_in_session && !is_selected && !is_cursor {
-                        Style::default().fg(Color::Magenta)
+                    // Use bookmark emoji for session lines, line number for others
+                    let line_num_display = if is_in_session {
+                        format!("   🔖 │ ")
                     } else {
-                        Style::default()
+                        format!("{:>5} │ ", line_num)
                     };
 
                     Line::from(vec![
-                        Span::styled(gutter_marker, gutter_style),
-                        Span::styled(format!("{:>5} │ ", line_num), line_num_style),
+                        Span::styled(line_num_display, line_num_style),
                         Span::styled(line, line_style),
                     ])
                 })
