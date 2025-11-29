@@ -578,10 +578,15 @@ pub fn render_runners_list(
                         let is_fav = favorites.contains(&key);
                         let star = if is_fav { "⭐ " } else { "" };
 
-                        let (status_icon, status_color) = match runner.status {
-                            RunnerStatus::Online => ("🟢", Color::Green),
-                            RunnerStatus::Offline => ("⚫", Color::DarkGray),
-                            RunnerStatus::Unknown => ("❓", Color::Gray),
+                        let (status_icon, status_color) = if runner.busy {
+                            // Active runners get yellow icon
+                            ("🟡", Color::Yellow)
+                        } else {
+                            match runner.status {
+                                RunnerStatus::Online => ("🟢", Color::Green),
+                                RunnerStatus::Offline => ("⚫", Color::DarkGray),
+                                RunnerStatus::Unknown => ("❓", Color::Gray),
+                            }
                         };
 
                         let labels: Vec<&str> = runner
