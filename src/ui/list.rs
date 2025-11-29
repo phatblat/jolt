@@ -23,6 +23,8 @@ pub fn format_relative_time(dt: &DateTime<Utc>) -> String {
         format!("{}h ago", duration.num_hours())
     } else if duration.num_minutes() > 0 {
         format!("{}m ago", duration.num_minutes())
+    } else if duration.num_seconds() > 0 {
+        format!("{}s ago", duration.num_seconds())
     } else {
         "just now".to_string()
     }
@@ -342,7 +344,12 @@ pub fn render_workflows_list(
 }
 
 /// Render workflow runs list.
-pub fn render_runs_list(frame: &mut Frame, list: &mut SelectableList<WorkflowRun>, area: Rect) {
+pub fn render_runs_list(
+    frame: &mut Frame,
+    list: &mut SelectableList<WorkflowRun>,
+    area: Rect,
+    title: &str,
+) {
     match &list.data {
         LoadingState::Idle => render_empty(frame, area, "Press Enter to load"),
         LoadingState::Loading => render_loading(frame, area, "Loading workflow runs"),
@@ -409,7 +416,7 @@ pub fn render_runs_list(frame: &mut Frame, list: &mut SelectableList<WorkflowRun
                     .block(
                         Block::default()
                             .borders(Borders::ALL)
-                            .title(" Workflow Runs "),
+                            .title(format!(" {} ", title)),
                     )
                     .highlight_style(
                         Style::default()

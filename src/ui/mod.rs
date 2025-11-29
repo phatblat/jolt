@@ -120,7 +120,7 @@ fn draw_runners_tab(frame: &mut Frame, app: &mut App, area: Rect) {
             );
         }
         RunnersViewLevel::Runs { .. } => {
-            list::render_runs_list(frame, &mut app.runners.runs, area);
+            list::render_runs_list(frame, &mut app.runners.runs, area, "Job Runs");
         }
         RunnersViewLevel::Jobs { .. } => {
             list::render_jobs_list(
@@ -457,7 +457,7 @@ fn draw_workflows_tab(frame: &mut Frame, app: &mut App, area: Rect) {
             );
         }
         ViewLevel::Runs { .. } => {
-            list::render_runs_list(frame, &mut app.workflows.runs, area);
+            list::render_runs_list(frame, &mut app.workflows.runs, area, "Workflow Runs");
         }
         ViewLevel::Jobs { .. } => {
             list::render_jobs_list(

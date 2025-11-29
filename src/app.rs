@@ -2541,7 +2541,9 @@ impl App {
                         .get_workflow_runs(&owner, &repo, 1, 30)
                         .await;
                     match result {
-                        Ok((runs, count)) => {
+                        Ok((mut runs, count)) => {
+                            // Sort by updated_at in descending order (newest first)
+                            runs.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
                             self.runners.runs.set_loaded(runs, count);
                         }
                         Err(e) => {
