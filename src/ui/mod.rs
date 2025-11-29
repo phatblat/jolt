@@ -3,6 +3,7 @@
 
 mod breadcrumb;
 mod list;
+mod modal;
 mod tabs;
 
 use ratatui::{prelude::*, widgets::*};
@@ -39,7 +40,8 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
                 ViewLevel::Jobs { .. } => app.workflows.jobs.last_updated,
                 ViewLevel::Logs { .. } => None, // Logs don't use SelectableList
             };
-            breadcrumb::draw_breadcrumb(frame, &breadcrumbs, chunks[1], timestamp);
+            let current_branch = app.workflows.current_branch.as_deref();
+            breadcrumb::draw_breadcrumb(frame, &breadcrumbs, chunks[1], timestamp, current_branch);
         }
         Tab::Runners => {
             let breadcrumbs = app.runners.nav.breadcrumbs();
@@ -70,6 +72,16 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     // Help overlay (rendered last, on top of everything)
     if app.show_help {
         draw_help_overlay(frame);
+    }
+
+    // Branch selection modal (rendered on top of help if needed)
+    if app.active_tab == Tab::Workflows && app.workflows.branch_modal_visible {
+        modal::draw_branch_modal(
+            frame,
+            &app.workflows.branch_input,
+            &app.workflows.branch_history,
+            app.workflows.branch_history_selection,
+        );
     }
 }
 

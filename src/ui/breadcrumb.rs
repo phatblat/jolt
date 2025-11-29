@@ -19,6 +19,7 @@ pub fn draw_breadcrumb(
     breadcrumbs: &[BreadcrumbNode],
     area: Rect,
     timestamp: Option<DateTime<Utc>>,
+    current_branch: Option<&str>,
 ) {
     let mut spans = Vec::new();
 
@@ -40,6 +41,18 @@ pub fn draw_breadcrumb(
     }
 
     let breadcrumb_line = Line::from(spans);
+
+    // Split area into two rows if we have a branch
+    let (breadcrumb_area, branch_area) = if current_branch.is_some() {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(1), Constraint::Length(1)])
+            .split(area);
+        (chunks[0], Some(chunks[1]))
+    } else {
+        (area, None)
+    };
+
     let block = Block::default()
         .borders(Borders::BOTTOM)
         .border_style(Style::default().fg(Color::DarkGray));
@@ -55,7 +68,7 @@ pub fn draw_breadcrumb(
         paragraph = paragraph.alignment(Alignment::Left);
 
         // Render breadcrumb first
-        frame.render_widget(paragraph, area);
+        frame.render_widget(paragraph, breadcrumb_area);
 
         // Then render timestamp on the right
         let timestamp_line = Line::from(vec![timestamp_span]);
@@ -65,14 +78,35 @@ pub fn draw_breadcrumb(
         frame.render_widget(
             timestamp_para,
             Rect {
-                x: area.x,
-                y: area.y,
-                width: area.width,
+                x: breadcrumb_area.x,
+                y: breadcrumb_area.y,
+                width: breadcrumb_area.width,
                 height: 1,
             },
         );
     } else {
-        frame.render_widget(paragraph, area);
+        frame.render_widget(paragraph, breadcrumb_area);
+    }
+
+    // Render branch name if provided
+    if let Some(branch_area) = branch_area {
+        if let Some(branch) = current_branch {
+            let branch_line = Line::from(vec![
+                Span::styled("Branch: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    branch,
+                    Style::default()
+                        .fg(Color::Magenta)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    "  (press 'b' to switch)",
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ]);
+            let branch_para = Paragraph::new(branch_line).style(Style::default());
+            frame.render_widget(branch_para, branch_area);
+        }
     }
 }
 

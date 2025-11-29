@@ -152,11 +152,17 @@ impl GitHubClient {
         workflow_id: u64,
         page: u32,
         per_page: u32,
+        branch: Option<&str>,
     ) -> Result<(Vec<WorkflowRun>, u64)> {
-        let params = [
-            ("page", &page.to_string()),
-            ("per_page", &per_page.to_string()),
+        let mut params = vec![
+            ("page", page.to_string()),
+            ("per_page", per_page.to_string()),
         ];
+
+        if let Some(b) = branch {
+            params.push(("branch", b.to_string()));
+        }
+
         let response = self
             .get_with_params(
                 &format!(

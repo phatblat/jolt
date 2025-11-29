@@ -94,6 +94,12 @@ pub struct PersistedState {
     /// Favorite runners (as "owner/repo/runner_name").
     #[serde(default)]
     pub favorite_runners: HashSet<String>,
+    /// Branch history for workflows tab.
+    #[serde(default)]
+    pub branch_history: Vec<String>,
+    /// Currently selected branch for workflows tab.
+    #[serde(default)]
+    pub current_branch: Option<String>,
 }
 
 impl PersistedState {
@@ -183,6 +189,8 @@ impl App {
         if let Some(nav) = persisted.workflows_nav {
             workflows.nav = nav;
         }
+        workflows.branch_history = persisted.branch_history;
+        workflows.current_branch = persisted.current_branch;
 
         let mut runners = RunnersTabState::new();
         if let Some(nav) = persisted.runners_nav {
@@ -265,6 +273,8 @@ impl App {
             favorite_repos: self.favorite_repos.clone(),
             favorite_workflows: self.favorite_workflows.clone(),
             favorite_runners: self.favorite_runners.clone(),
+            branch_history: self.workflows.branch_history.clone(),
+            current_branch: self.workflows.current_branch.clone(),
         };
         state.save();
     }
@@ -374,6 +384,43 @@ impl App {
                         return Ok(());
                     }
 
+                    // When branch modal is active, handle input
+                    if self.active_tab == Tab::Workflows && self.workflows.branch_modal_visible {
+                        match key.code {
+                            KeyCode::Esc => {
+                                self.workflows.branch_modal_visible = false;
+                                self.workflows.branch_input.clear();
+                                self.workflows.branch_history_selection = 0;
+                            }
+                            KeyCode::Enter => {
+                                self.handle_branch_switch().await;
+                            }
+                            KeyCode::Up => {
+                                if !self.workflows.branch_history.is_empty() {
+                                    if self.workflows.branch_history_selection > 0 {
+                                        self.workflows.branch_history_selection -= 1;
+                                    }
+                                }
+                            }
+                            KeyCode::Down => {
+                                if !self.workflows.branch_history.is_empty() {
+                                    let max = self.workflows.branch_history.len() - 1;
+                                    if self.workflows.branch_history_selection < max {
+                                        self.workflows.branch_history_selection += 1;
+                                    }
+                                }
+                            }
+                            KeyCode::Backspace => {
+                                self.workflows.branch_input.pop();
+                            }
+                            KeyCode::Char(c) => {
+                                self.workflows.branch_input.push(c);
+                            }
+                            _ => {}
+                        }
+                        return Ok(());
+                    }
+
                     // Handle Ctrl modifier keys first
                     if key.modifiers.contains(KeyModifiers::CONTROL) {
                         let shift_held = key.modifiers.contains(KeyModifiers::SHIFT);
@@ -451,6 +498,7 @@ impl App {
                         KeyCode::Char('f') => self.toggle_favorite(),
                         KeyCode::Char('c') => self.copy_selection(),
                         KeyCode::Char('a') => self.save_to_analyze(),
+                        KeyCode::Char('b') => self.handle_branch_modal_open(),
                         // Search navigation
                         KeyCode::Char('n') => self.search_next(),
                         KeyCode::Char('N') => self.search_prev(),
@@ -2238,11 +2286,12 @@ impl App {
                 }
                 // No valid cache, fetch from API
                 self.workflows.runs.set_loading();
+                let branch = self.workflows.current_branch.as_deref();
                 let result = self
                     .github_client
                     .as_mut()
                     .unwrap()
-                    .get_workflow_runs_for_workflow(&owner, &repo, workflow_id, 1, 30)
+                    .get_workflow_runs_for_workflow(&owner, &repo, workflow_id, 1, 30, branch)
                     .await;
                 match result {
                     Ok((runs, count)) => {
@@ -2561,6 +2610,56 @@ impl App {
                 }
             }
         }
+    }
+
+    /// Open branch selection modal.
+    fn handle_branch_modal_open(&mut self) {
+        // Only open modal in Workflows tab when viewing workflows
+        if self.active_tab == Tab::Workflows {
+            if matches!(self.workflows.nav.current(), ViewLevel::Workflows { .. }) {
+                self.workflows.branch_modal_visible = true;
+                self.workflows.branch_input.clear();
+                self.workflows.branch_history_selection = 0;
+            }
+        }
+    }
+
+    /// Handle branch switch from modal.
+    async fn handle_branch_switch(&mut self) {
+        // Determine branch to switch to
+        let branch = if self.workflows.branch_input.is_empty() {
+            // Use selection from history
+            if !self.workflows.branch_history.is_empty() {
+                self.workflows.branch_history[self.workflows.branch_history_selection].clone()
+            } else {
+                return; // Nothing to switch to
+            }
+        } else {
+            // Use typed input
+            self.workflows.branch_input.clone()
+        };
+
+        // Close modal
+        self.workflows.branch_modal_visible = false;
+        self.workflows.branch_input.clear();
+
+        // Update current branch
+        self.workflows.current_branch = Some(branch.clone());
+
+        // Add to history if not already present
+        if !self.workflows.branch_history.contains(&branch) {
+            self.workflows.branch_history.insert(0, branch.clone());
+            // Keep history to max 10 items
+            if self.workflows.branch_history.len() > 10 {
+                self.workflows.branch_history.truncate(10);
+            }
+        }
+
+        // Clear workflows list to force reload with new branch
+        self.workflows.workflows = crate::state::workflows::SelectableList::new();
+
+        // Reload workflows for the new branch
+        self.load_current_view().await;
     }
 
     /// Log an error to the sync activity log.

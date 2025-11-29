@@ -231,6 +231,16 @@ pub struct WorkflowsTabState {
     pub log_selection_anchor: usize,
     /// Selection cursor line in log viewer (0-indexed).
     pub log_selection_cursor: usize,
+    /// Whether branch selection modal is shown.
+    pub branch_modal_visible: bool,
+    /// Text input for branch name in modal.
+    pub branch_input: String,
+    /// Current selected branch (None = default branch).
+    pub current_branch: Option<String>,
+    /// History of previously used branches.
+    pub branch_history: Vec<String>,
+    /// Selected index in branch history list.
+    pub branch_history_selection: usize,
 }
 
 impl Default for WorkflowsTabState {
@@ -249,6 +259,11 @@ impl Default for WorkflowsTabState {
             log_scroll_y: 0,
             log_selection_anchor: 0,
             log_selection_cursor: 0,
+            branch_modal_visible: false,
+            branch_input: String::new(),
+            current_branch: None,
+            branch_history: Vec::new(),
+            branch_history_selection: 0,
         }
     }
 }
