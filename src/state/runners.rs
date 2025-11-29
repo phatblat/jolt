@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::github::{Job, Repository, RunConclusion, RunStatus, Runner, WorkflowRun};
+use crate::github::{EnrichedRunner, Job, Repository, RunConclusion, RunStatus, WorkflowRun};
 
 use super::workflows::{LoadingState, SelectableList};
 
@@ -135,7 +135,7 @@ pub struct RunnersTabState {
     /// Repositories with runners.
     pub repositories: SelectableList<Repository>,
     /// Runners list for current repository.
-    pub runners: SelectableList<Runner>,
+    pub runners: SelectableList<EnrichedRunner>,
     /// Workflow runs list.
     pub runs: SelectableList<WorkflowRun>,
     /// Jobs list for current run.
@@ -154,6 +154,8 @@ pub struct RunnersTabState {
     pub runners_view_entered_at: Option<std::time::Instant>,
     /// When to next refresh the runners list.
     pub runners_next_refresh: Option<std::time::Instant>,
+    /// Whether enrichment data is currently being loaded.
+    pub enrichment_loading: bool,
 }
 
 impl Default for RunnersTabState {
@@ -171,6 +173,7 @@ impl Default for RunnersTabState {
             log_selection_cursor: 0,
             runners_view_entered_at: None,
             runners_next_refresh: None,
+            enrichment_loading: false,
         }
     }
 }

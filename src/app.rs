@@ -477,7 +477,7 @@ impl App {
                             .github_client
                             .as_mut()
                             .unwrap()
-                            .get_runners(&owner, &repo, 1, 30)
+                            .get_enriched_runners(&owner, &repo, 1, 30)
                             .await;
                         match result {
                             Ok((runners, count)) => {
@@ -1536,18 +1536,18 @@ impl App {
                 let owner = owner.clone();
                 let repo = repo.clone();
                 sorted.sort_by(|a, b| {
-                    let a_key = format!("{}/{}/{}", owner, repo, a.name);
-                    let b_key = format!("{}/{}/{}", owner, repo, b.name);
+                    let a_key = format!("{}/{}/{}", owner, repo, a.runner.name);
+                    let b_key = format!("{}/{}/{}", owner, repo, b.runner.name);
                     let a_fav = self.favorite_runners.contains(&a_key);
                     let b_fav = self.favorite_runners.contains(&b_key);
                     match (a_fav, b_fav) {
                         (true, false) => std::cmp::Ordering::Less,
                         (false, true) => std::cmp::Ordering::Greater,
-                        _ => a.name.cmp(&b.name),
+                        _ => a.runner.name.cmp(&b.runner.name),
                     }
                 });
-                if let Some(runner) = sorted.get(index) {
-                    let key = format!("{}/{}/{}", owner, repo, runner.name);
+                if let Some(enriched) = sorted.get(index) {
+                    let key = format!("{}/{}/{}", owner, repo, enriched.runner.name);
                     if self.favorite_runners.contains(&key) {
                         self.favorite_runners.remove(&key);
                     } else {
@@ -1935,20 +1935,20 @@ impl App {
                 let owner = owner.clone();
                 let repo = repo.clone();
                 sorted.sort_by(|a, b| {
-                    let a_key = format!("{}/{}/{}", owner, repo, a.name);
-                    let b_key = format!("{}/{}/{}", owner, repo, b.name);
+                    let a_key = format!("{}/{}/{}", owner, repo, a.runner.name);
+                    let b_key = format!("{}/{}/{}", owner, repo, b.runner.name);
                     let a_fav = self.favorite_runners.contains(&a_key);
                     let b_fav = self.favorite_runners.contains(&b_key);
                     match (a_fav, b_fav) {
                         (true, false) => std::cmp::Ordering::Less,
                         (false, true) => std::cmp::Ordering::Greater,
-                        _ => a.name.cmp(&b.name),
+                        _ => a.runner.name.cmp(&b.runner.name),
                     }
                 });
-                sorted.get(index).map(|runner| RunnersViewLevel::Runs {
+                sorted.get(index).map(|enriched| RunnersViewLevel::Runs {
                     owner,
                     repo,
-                    runner_name: Some(runner.name.clone()),
+                    runner_name: Some(enriched.runner.name.clone()),
                 })
             }
             RunnersViewLevel::Runs { owner, repo, .. } => {
@@ -2427,7 +2427,7 @@ impl App {
                         .github_client
                         .as_mut()
                         .unwrap()
-                        .get_runners(&owner, &repo, 1, 30)
+                        .get_enriched_runners(&owner, &repo, 1, 30)
                         .await;
                     match result {
                         Ok((runners, count)) => {

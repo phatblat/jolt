@@ -7,7 +7,9 @@ use serde::{Deserialize, de::DeserializeOwned};
 use crate::error::{JoltError, Result};
 
 use super::client::GitHubClient;
-use super::types::{Job, Owner, Repository, Runner, Workflow, WorkflowRun};
+use super::types::{
+    EnrichedRunner, Job, Owner, Repository, RunStatus, Runner, RunnerJobInfo, Workflow, WorkflowRun,
+};
 
 /// Parse JSON response with better error messages.
 async fn parse_json<T: DeserializeOwned>(response: Response) -> Result<T> {
@@ -229,6 +231,20 @@ impl GitHubClient {
         }
     }
 
+    /// Get in-progress workflow runs for a repository.
+    pub async fn get_in_progress_runs(
+        &mut self,
+        owner: &str,
+        repo: &str,
+    ) -> Result<Vec<WorkflowRun>> {
+        let params = [("status", "in_progress"), ("per_page", "100")];
+        let response = self
+            .get_with_params(&format!("/repos/{}/{}/actions/runs", owner, repo), &params)
+            .await?;
+        let wrapper: WorkflowRunsResponse = parse_json(response).await?;
+        Ok(wrapper.workflow_runs)
+    }
+
     /// Get runners for a repository (requires admin access).
     pub async fn get_runners(
         &mut self,
@@ -249,5 +265,79 @@ impl GitHubClient {
             .await?;
         let wrapper: RunnersResponse = parse_json(response).await?;
         Ok((wrapper.runners, wrapper.total_count))
+    }
+
+    /// Fetch runner enrichment data (job info) without fetching runners list.
+    /// Returns a map of runner names to their current job info.
+    pub async fn fetch_runner_enrichment_data(
+        &mut self,
+        owner: &str,
+        repo: &str,
+    ) -> std::collections::HashMap<String, RunnerJobInfo> {
+        let mut enrichment_map = std::collections::HashMap::new();
+
+        // Fetch in-progress runs (limit to first 10 runs)
+        let in_progress_runs = match self.get_in_progress_runs(owner, repo).await {
+            Ok(runs) => runs.into_iter().take(10).collect::<Vec<_>>(),
+            Err(_) => return enrichment_map,
+        };
+
+        // Collect all jobs from in-progress runs (limit total jobs fetched)
+        let mut all_jobs = Vec::new();
+        for run in &in_progress_runs {
+            if all_jobs.len() >= 50 {
+                break;
+            }
+            if let Ok((jobs, _)) = self.get_jobs(owner, repo, run.id, 1, 50).await {
+                for job in jobs {
+                    all_jobs.push((job, run.clone()));
+                    if all_jobs.len() >= 50 {
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Build map of runner name to job info for in-progress jobs
+        for (job, run) in all_jobs {
+            if matches!(job.status, RunStatus::InProgress) {
+                if let Some(runner_name) = job.runner_name {
+                    enrichment_map.insert(
+                        runner_name,
+                        RunnerJobInfo {
+                            pr_number: run.pull_requests.first().map(|pr| pr.number),
+                            branch: run.head_branch.clone(),
+                            started_at: job.started_at,
+                            job_name: job.name.clone(),
+                        },
+                    );
+                }
+            }
+        }
+
+        enrichment_map
+    }
+
+    /// Get enriched runners - returns runners immediately without enrichment data.
+    /// Enrichment data should be loaded separately using fetch_runner_enrichment_data.
+    pub async fn get_enriched_runners(
+        &mut self,
+        owner: &str,
+        repo: &str,
+        page: u32,
+        per_page: u32,
+    ) -> Result<(Vec<EnrichedRunner>, u64)> {
+        // Fetch runners and return immediately without enrichment
+        let (runners, total_count) = self.get_runners(owner, repo, page, per_page).await?;
+
+        let enriched_runners = runners
+            .into_iter()
+            .map(|runner| EnrichedRunner {
+                runner,
+                current_job: None,
+            })
+            .collect();
+
+        Ok((enriched_runners, total_count))
     }
 }

@@ -7,8 +7,8 @@ use chrono::{DateTime, Utc};
 use ratatui::{prelude::*, widgets::*};
 
 use crate::github::{
-    Job, Owner, OwnerType, Repository, RunConclusion, RunStatus, Runner, RunnerStatus, Workflow,
-    WorkflowRun,
+    EnrichedRunner, Job, Owner, OwnerType, Repository, RunConclusion, RunStatus, RunnerStatus,
+    Workflow, WorkflowRun,
 };
 use crate::state::{LoadingState, SelectableList};
 
@@ -542,7 +542,7 @@ pub fn render_jobs_list(frame: &mut Frame, list: &mut SelectableList<Job>, area:
 /// Render runners list.
 pub fn render_runners_list(
     frame: &mut Frame,
-    list: &mut SelectableList<Runner>,
+    list: &mut SelectableList<EnrichedRunner>,
     favorites: &HashSet<String>,
     owner: &str,
     repo: &str,
@@ -559,20 +559,21 @@ pub fn render_runners_list(
                 // Sort: favorites first, then by name
                 let mut sorted: Vec<_> = data.items.iter().collect();
                 sorted.sort_by(|a, b| {
-                    let a_key = format!("{}/{}/{}", owner, repo, a.name);
-                    let b_key = format!("{}/{}/{}", owner, repo, b.name);
+                    let a_key = format!("{}/{}/{}", owner, repo, a.runner.name);
+                    let b_key = format!("{}/{}/{}", owner, repo, b.runner.name);
                     let a_fav = favorites.contains(&a_key);
                     let b_fav = favorites.contains(&b_key);
                     match (a_fav, b_fav) {
                         (true, false) => std::cmp::Ordering::Less,
                         (false, true) => std::cmp::Ordering::Greater,
-                        _ => a.name.cmp(&b.name),
+                        _ => a.runner.name.cmp(&b.runner.name),
                     }
                 });
 
                 let items: Vec<ListItem> = sorted
                     .iter()
-                    .map(|runner| {
+                    .map(|enriched| {
+                        let runner = &enriched.runner;
                         let key = format!("{}/{}/{}", owner, repo, runner.name);
                         let is_fav = favorites.contains(&key);
                         let star = if is_fav { "⭐ " } else { "" };
@@ -582,8 +583,6 @@ pub fn render_runners_list(
                             RunnerStatus::Offline => ("⚫", Color::DarkGray),
                             RunnerStatus::Unknown => ("❓", Color::Gray),
                         };
-
-                        let busy_indicator = if runner.busy { " (busy)" } else { "" };
 
                         let labels: Vec<&str> = runner
                             .labels
@@ -597,15 +596,53 @@ pub fn render_runners_list(
                             format!("  [{}]", labels.join(", "))
                         };
 
+                        // Build busy indicator with job details if available
+                        let busy_info = if runner.busy {
+                            if let Some(job_info) = &enriched.current_job {
+                                let mut parts = Vec::new();
+
+                                // PR number
+                                if let Some(pr) = job_info.pr_number {
+                                    parts.push(format!("PR #{}", pr));
+                                }
+
+                                // Branch name (truncate if too long)
+                                if let Some(branch) = &job_info.branch {
+                                    let branch_display = if branch.len() > 30 {
+                                        format!("{}...", &branch[..27])
+                                    } else {
+                                        branch.clone()
+                                    };
+                                    parts.push(branch_display);
+                                }
+
+                                // Time since trigger
+                                if let Some(started_at) = job_info.started_at {
+                                    let time_str = format_relative_time(&started_at);
+                                    parts.push(time_str);
+                                }
+
+                                if parts.is_empty() {
+                                    "  active".to_string()
+                                } else {
+                                    format!("  {}", parts.join(" • "))
+                                }
+                            } else {
+                                "  active".to_string()
+                            }
+                        } else {
+                            String::new()
+                        };
+
                         ListItem::new(Line::from(vec![
                             Span::raw(format!("{}{} ", star, status_icon)),
                             Span::styled(&runner.name, Style::default().fg(status_color)),
-                            Span::styled(busy_indicator, Style::default().fg(Color::Yellow)),
                             Span::styled(
                                 format!("  {}", runner.os),
                                 Style::default().fg(Color::Cyan),
                             ),
                             Span::styled(labels_str, Style::default().fg(Color::DarkGray)),
+                            Span::styled(busy_info, Style::default().fg(Color::Yellow)),
                         ]))
                     })
                     .collect();

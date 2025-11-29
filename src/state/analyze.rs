@@ -189,7 +189,9 @@ impl AnalyzeTabState {
 
     /// Get the currently selected session.
     pub fn selected_session(&self) -> Option<&AnalysisSession> {
-        self.list_state.selected().and_then(|i| self.sessions.get(i))
+        self.list_state
+            .selected()
+            .and_then(|i| self.sessions.get(i))
     }
 
     /// Select the next session in the list.

@@ -10,7 +10,9 @@ pub mod sync;
 pub mod workflows;
 
 #[allow(unused_imports)]
-pub use analyze::{AnalysisSession, AnalyzeTabState, AnalyzeViewLevel, NavigationContext, RunMetadata, SourceTab};
+pub use analyze::{
+    AnalysisSession, AnalyzeTabState, AnalyzeViewLevel, NavigationContext, RunMetadata, SourceTab,
+};
 pub use navigation::{NavigationStack, ViewLevel};
 pub use runners::{RunnersNavStack, RunnersTabState, RunnersViewLevel};
 #[allow(unused_imports)]

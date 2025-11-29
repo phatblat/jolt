@@ -165,6 +165,22 @@ pub struct Runner {
     pub labels: Vec<RunnerLabel>,
 }
 
+/// Enriched runner info with current job details.
+#[derive(Debug, Clone)]
+pub struct EnrichedRunner {
+    pub runner: Runner,
+    pub current_job: Option<RunnerJobInfo>,
+}
+
+/// Current job information for a busy runner.
+#[derive(Debug, Clone)]
+pub struct RunnerJobInfo {
+    pub pr_number: Option<u64>,
+    pub branch: Option<String>,
+    pub started_at: Option<DateTime<Utc>>,
+    pub job_name: String,
+}
+
 /// Runner status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
