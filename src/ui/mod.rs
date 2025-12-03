@@ -14,13 +14,21 @@ use crate::state::{AnalyzeViewLevel, ConsoleLevel, LoadingState, RunnersViewLeve
 
 /// Main draw function that renders the entire UI.
 pub fn draw(frame: &mut Frame, app: &mut App) {
+    // Determine breadcrumb height based on whether we need branch display
+    let breadcrumb_height =
+        if app.active_tab == Tab::Workflows && app.workflows.current_branch.is_some() {
+            3 // Workflows with branch: breadcrumb + branch + border
+        } else {
+            2 // Runners or Workflows without branch: breadcrumb + border
+        };
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // Tab bar
-            Constraint::Length(3), // Breadcrumb
-            Constraint::Min(1),    // Main content
-            Constraint::Length(1), // Status bar
+            Constraint::Length(3),                 // Tab bar
+            Constraint::Length(breadcrumb_height), // Breadcrumb (dynamic)
+            Constraint::Min(1),                    // Main content
+            Constraint::Length(1),                 // Status bar
         ])
         .split(frame.area());
 
