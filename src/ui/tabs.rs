@@ -4,6 +4,7 @@
 use ratatui::{prelude::*, widgets::*};
 
 use crate::app::{App, Tab};
+use crate::state::ViewLevel;
 
 /// Draw the tab bar at the top of the screen.
 pub fn draw_tabs(frame: &mut Frame, app: &App, area: Rect) {
@@ -45,4 +46,32 @@ pub fn draw_tabs(frame: &mut Frame, app: &App, area: Rect) {
         .divider(Span::raw(" │ "));
 
     frame.render_widget(tabs_widget, area);
+
+    // Show branch selector on the right side when on Workflows tab at Workflows view level
+    if app.active_tab == Tab::Workflows {
+        if let ViewLevel::Workflows { .. } = app.workflows.nav.current() {
+            if let Some(branch) = &app.workflows.current_branch {
+                let branch_line = Line::from(vec![
+                    Span::styled("branch (b): ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(
+                        branch,
+                        Style::default()
+                            .fg(Color::Magenta)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                ]);
+                let branch_para = Paragraph::new(branch_line).alignment(Alignment::Right);
+                // Render on the second line of the tab area (below the tabs)
+                frame.render_widget(
+                    branch_para,
+                    Rect {
+                        x: area.x,
+                        y: area.y + 1,
+                        width: area.width,
+                        height: 1,
+                    },
+                );
+            }
+        }
+    }
 }

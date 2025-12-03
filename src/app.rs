@@ -2657,8 +2657,9 @@ impl App {
             }
         }
 
-        // Clear workflows list to force reload with new branch
+        // Clear workflows and runs lists to force reload with new branch
         self.workflows.workflows = crate::state::workflows::SelectableList::new();
+        self.workflows.runs = crate::state::workflows::SelectableList::new();
 
         // Reload workflows for the new branch
         self.load_current_view().await;
