@@ -1,10 +1,18 @@
 # Harness Implementation Plan
 
-Phased implementation plan for adding Harness CI/CD support to jolt.
+Phased implementation plan for adding Harness CI/CD support to jolt with unified navigation.
 
 ## Overview
 
-This plan outlines the steps to add Harness support alongside existing GitHub Actions functionality. The implementation is divided into 5 phases, each with specific deliverables and testing criteria.
+This plan outlines the steps to add Harness support alongside existing GitHub Actions functionality using a **unified navigation approach**. Since GitHub Actions and Harness have identical 7-level hierarchies, we can integrate both platforms into a single navigation flow with platform badges for distinction.
+
+The implementation is divided into 5 phases, each with specific deliverables and testing criteria.
+
+## Key Architecture Decision
+
+**Unified Navigation**: Both platforms share the same UI and navigation structure since their hierarchies map 1:1:
+- GitHub: Owner → Repository → Workflow → Run → Job → Step → Logs
+- Harness: Organization → Project → Pipeline → Execution → Stage → Step → Logs
 
 ## Phase 1: Harness Client Foundation
 
@@ -167,52 +175,55 @@ mod integration_tests {
 
 ---
 
-## Phase 3: Platform Abstraction
+## Phase 3: Unified Types and Platform Abstraction
 
-**Goal:** Create platform-agnostic abstraction layer
+**Goal:** Create unified types that work for both platforms and platform abstraction layer
 
 ### Tasks
 
-- [ ] Create `src/platform/` module
+- [ ] Create `src/types/` module for unified types
+  - [ ] `Organization` - Works for both GitHub Owner and Harness Organization
+  - [ ] `Project` - Works for both GitHub Repository and Harness Project
+  - [ ] `Workflow` - Works for both GitHub Workflow and Harness Pipeline
+  - [ ] `Execution` - Works for both GitHub Run and Harness Execution
+  - [ ] `Job` - Works for both GitHub Job and Harness Stage
+  - [ ] `Step` - Works for both platforms (same concept)
+  - [ ] `Runner` - Works for both platforms
+  - [ ] `Platform` enum (GitHub, Harness)
+  - [ ] Status enums (ExecutionStatus, RunnerStatus)
+
+- [ ] Create `src/platform/` module for platform abstraction
   - [ ] `src/platform/mod.rs` - Platform trait definition
-  - [ ] `src/platform/types.rs` - Common types
   - [ ] `src/platform/github.rs` - GitHub implementation
   - [ ] `src/platform/harness.rs` - Harness implementation
 
-- [ ] Define `Platform` trait
-  - [ ] Authentication methods
-  - [ ] Organizational structure methods
-  - [ ] Runner methods
-  - [ ] Execution methods
-  - [ ] Log methods
+- [ ] Define `Platform` trait with methods returning unified types
+  - [ ] `list_organizations()` → `Vec<Organization>`
+  - [ ] `list_projects(org)` → `Vec<Project>`
+  - [ ] `list_workflows(project)` → `Vec<Workflow>`
+  - [ ] `list_executions(workflow)` → `Vec<Execution>`
+  - [ ] `list_jobs(execution)` → `Vec<Job>`
+  - [ ] `list_steps(job)` → `Vec<Step>`
+  - [ ] `fetch_logs(step)` → `Vec<LogLine>`
+  - [ ] `list_runners(scope)` → `Vec<Runner>`
 
-- [ ] Define common types
-  - [ ] `Scope` enum (Account, Organization, Project)
-  - [ ] `Runner` struct (normalized)
-  - [ ] `Execution` struct (normalized)
-  - [ ] `LogLine` struct (normalized)
-
-- [ ] Implement `Platform` for GitHub
-  - [ ] Wrap existing GitHub client
-  - [ ] Map GitHub types to common types
-  - [ ] Map GitHub scopes (repo-based) to `Scope`
-
-- [ ] Implement `Platform` for Harness
-  - [ ] Wrap `HarnessClient`
-  - [ ] Map Harness types to common types
-  - [ ] Map Harness hierarchy to `Scope`
+- [ ] Implement mappers
+  - [ ] GitHub types → Unified types
+  - [ ] Harness types → Unified types
+  - [ ] Status mapping (both directions)
 
 - [ ] Update `App` state
-  - [ ] Store `Box<dyn Platform>` instead of concrete type
-  - [ ] Add platform selector/switcher
-  - [ ] Handle multi-platform scenarios
+  - [ ] Store `Vec<Box<dyn Platform>>` for multi-platform support
+  - [ ] Merge and sort results from multiple platforms
+  - [ ] Handle platform-specific features gracefully
 
 ### Success Criteria
 
+- Unified types compile and cover all necessary fields
 - Platform trait compiles and is usable
 - Both GitHub and Harness implement Platform correctly
-- App state works with trait objects
-- Type conversions are correct
+- Mappers correctly transform platform-specific types to unified types
+- App can query multiple platforms and merge results
 - Tests pass for both implementations
 
 ### Testing
@@ -249,68 +260,74 @@ mod tests {
 
 ---
 
-## Phase 4: UI Integration
+## Phase 4: Unified UI Integration
 
-**Goal:** Add Harness tab and navigation to TUI
+**Goal:** Integrate both platforms into unified TUI with platform badges
 
 ### Tasks
 
-- [ ] Update tab structure
-  - [ ] Add `HarnessRunners` tab
-  - [ ] Add `HarnessWorkflows` tab (or rename to Executions)
-  - [ ] Update `Tab` enum
-  - [ ] Add platform badge to tabs
+- [ ] Add platform badge rendering
+  - [ ] Create `render_platform_badge()` function
+  - [ ] Show [GH] or [HR] prefix on list items
+  - [ ] Use color coding (blue for GitHub, orange for Harness)
 
-- [ ] Implement breadcrumb navigation
-  - [ ] Account → Org → Project hierarchy
-  - [ ] Update `ui/breadcrumb.rs` for Harness
-  - [ ] Handle navigation state
+- [ ] Update existing UI components for unified types
+  - [ ] Update list rendering to use unified types
+  - [ ] Update breadcrumb to show platform badge
+  - [ ] Update status colors to work with unified statuses
 
-- [ ] Display runners
-  - [ ] List runners in current scope
-  - [ ] Show runner status with colors
-  - [ ] Show runner details (capacity, running builds)
-  - [ ] Handle empty state
+- [ ] Enhance navigation for 7-level hierarchy
+  - [ ] Organizations/Owners list
+  - [ ] Projects/Repositories list
+  - [ ] Workflows/Pipelines list
+  - [ ] Executions/Runs list
+  - [ ] Jobs/Stages list
+  - [ ] Steps list (NEW level)
+  - [ ] Logs viewer
 
-- [ ] Display executions
-  - [ ] List executions in current scope
-  - [ ] Show execution status with colors
-  - [ ] Show pipeline name, start time, duration
-  - [ ] Handle filtering (all, running, queued)
+- [ ] Update Runners tab
+  - [ ] Fetch runners from all platforms
+  - [ ] Merge and sort runner lists
+  - [ ] Show platform badge for each runner
+  - [ ] Show scope (repo/org/project)
 
-- [ ] Display logs
-  - [ ] Show logs for selected execution
-  - [ ] Handle pagination
-  - [ ] Add scroll support
-  - [ ] Show loading state
+- [ ] Update Workflows tab
+  - [ ] Fetch from all platforms
+  - [ ] Merge and sort at each navigation level
+  - [ ] Maintain separate breadcrumbs per platform
+
+- [ ] Add platform filtering (optional)
+  - [ ] Press 'f' to toggle filter
+  - [ ] Show only GitHub or only Harness
+  - [ ] Show filter state in UI
 
 - [ ] Update app event loop
-  - [ ] Handle navigation events (Enter, Esc)
-  - [ ] Handle tab switching
-  - [ ] Handle scroll events
-  - [ ] Trigger background data fetching
+  - [ ] Query all active platforms in parallel
+  - [ ] Merge results from multiple platforms
+  - [ ] Handle platform-specific errors gracefully
 
 ### Success Criteria
 
-- Harness tabs render correctly
-- Breadcrumb navigation works
-- Runners display with correct status
-- Executions display with correct status
-- Logs display correctly
-- Navigation is intuitive
+- Platform badges render correctly
+- Can navigate unified hierarchy with both platforms
+- Lists show mixed GitHub and Harness items
+- Platform filtering works
+- Colors and status indicators are consistent
+- Navigation is intuitive across both platforms
 
 ### Testing
 
 Manual testing checklist:
-- [ ] Can switch to Harness tabs
-- [ ] Can navigate org → project → runners
-- [ ] Can navigate org → project → executions
-- [ ] Runner status colors are correct
-- [ ] Execution status colors are correct
-- [ ] Can view logs for an execution
-- [ ] Can scroll through long logs
-- [ ] Can navigate back up hierarchy
-- [ ] Error messages are clear
+- [ ] Platform badges show on all list items
+- [ ] Can navigate org → project → workflow → execution → job → step → logs
+- [ ] Mixed lists (GitHub + Harness) display correctly
+- [ ] Runner list shows runners from both platforms
+- [ ] Status colors are correct for both platforms
+- [ ] Can view logs for GitHub and Harness executions
+- [ ] Platform filter toggles correctly
+- [ ] Can switch platforms mid-navigation
+- [ ] Breadcrumb shows current platform
+- [ ] Error messages are clear and indicate platform
 
 ---
 
@@ -345,40 +362,37 @@ Manual testing checklist:
   - [ ] Define config structure
   - [ ] Read from `~/.config/jolt/config.toml`
   - [ ] Support platform enable/disable
-  - [ ] Support default platform selection
-  - [ ] Support custom base URLs
-
-- [ ] Multi-platform support
-  - [ ] Show both platforms in UI (configurable)
-  - [ ] Allow switching between platforms
-  - [ ] Unified view option (both platforms in one tab)
-  - [ ] Platform filter/selector
+  - [ ] Support custom Harness base URLs
+  - [ ] Support cache TTL customization
 
 - [ ] Polish
-  - [ ] Add help text for Harness-specific keys
-  - [ ] Improve error messages
-  - [ ] Add loading indicators
+  - [ ] Add help text for platform-specific features
+  - [ ] Improve error messages with platform context
+  - [ ] Add loading indicators for slow API calls
   - [ ] Add retry logic with exponential backoff
-  - [ ] Handle rate limiting gracefully
+  - [ ] Handle rate limiting gracefully for both platforms
+  - [ ] Add keyboard shortcuts for platform filtering
 
 ### Success Criteria
 
 - Logs stream in real-time via WebSocket
 - Caching reduces API calls significantly
 - Config file works correctly
-- Can use both GitHub and Harness simultaneously
-- Error handling is robust
+- Both GitHub and Harness work seamlessly in unified view
+- Error handling is robust and platform-aware
 - Performance is good even with slow networks
+- Platform filtering is smooth and intuitive
 
 ### Testing
 
 - [ ] WebSocket streaming works without drops
-- [ ] Cache TTL works correctly
+- [ ] Cache TTL works correctly for both platforms
 - [ ] Cache invalidation works
 - [ ] Config file is parsed correctly
-- [ ] Multi-platform view works
-- [ ] Rate limiting is handled gracefully
+- [ ] Platform filtering toggles correctly
+- [ ] Rate limiting is handled gracefully for both platforms
 - [ ] Long-running connections are stable
+- [ ] Performance is acceptable with both platforms enabled
 
 ---
 
@@ -386,24 +400,29 @@ Manual testing checklist:
 
 ### M1: Basic Harness Client (Phases 1-2)
 - Harness client can authenticate and make API calls
-- All core API methods implemented
+- All core API methods implemented (orgs, projects, pipelines, executions, stages, steps, logs, runners)
 - Unit tests passing
 
-### M2: Platform Abstraction (Phase 3)
+### M2: Unified Types and Platform Abstraction (Phase 3)
+- Unified types defined for both platforms
 - Platform trait defined and implemented
-- Both GitHub and Harness use common interface
-- App state refactored to use trait
+- Both GitHub and Harness implement Platform trait
+- Mappers correctly transform platform-specific types
+- App can query multiple platforms
 
-### M3: UI Integration (Phase 4)
-- Harness tabs functional
-- Can view runners, executions, logs
-- Navigation works correctly
+### M3: Unified UI Integration (Phase 4)
+- Platform badges render correctly
+- Both platforms visible in unified lists
+- 7-level navigation works (including new Steps level)
+- Can view runners, executions, jobs, steps, logs from both platforms
+- Platform filtering works
 
 ### M4: Production Ready (Phase 5)
-- WebSocket streaming works
-- Caching improves performance
+- WebSocket streaming works for Harness
+- Caching improves performance for both platforms
 - Configuration file support
-- Multi-platform support
+- Error handling is robust
+- Performance is good with both platforms
 - Ready for release
 
 ## Dependencies

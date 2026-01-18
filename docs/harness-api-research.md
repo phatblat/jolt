@@ -26,18 +26,33 @@ Harness uses API keys (Personal Access Tokens/PAT) for authentication.
 
 ## Organizational Structure
 
-Harness uses a three-level hierarchy:
+Harness uses a hierarchical structure with an explicit account level at the top:
 
 ```
 Account (Top-level)
   └── Organization
       └── Project
           ├── Pipelines
+          │   └── Pipeline Execution
+          │       └── Stage
+          │           └── Step
+          │               └── Logs
           ├── Services
           ├── Environments
           ├── Connectors
           └── Resources (including Runners)
 ```
+
+**Full Execution Hierarchy:**
+```
+Pipeline → Execution → Stage → Step → Logs
+```
+
+This maps directly to GitHub Actions' hierarchy:
+- **Pipeline** ↔ Workflow
+- **Execution** ↔ Run
+- **Stage** ↔ Job
+- **Step** ↔ Step
 
 **Key Identifiers:**
 - `accountIdentifier` - Unique account ID (required for all API calls)
@@ -156,14 +171,29 @@ GET /pipeline/api/pipelines/execution/{planExecutionId}
       "stageExecutions": [
         {
           "stageIdentifier": "stage-id",
+          "stageName": "Build",
           "status": "Running",
-          "startTs": 1234567890
+          "startTs": 1234567890,
+          "stepExecutions": [
+            {
+              "stepIdentifier": "step-id",
+              "stepName": "Run Tests",
+              "status": "Success",
+              "startTs": 1234567890,
+              "endTs": 1234567900
+            }
+          ]
         }
       ]
     }
   }
 }
 ```
+
+**Hierarchy in Execution Response:**
+- **Execution** contains multiple **Stages**
+- Each **Stage** contains multiple **Steps**
+- Each **Step** produces logs that can be fetched individually
 
 ## Logs
 

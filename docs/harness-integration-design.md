@@ -5,10 +5,26 @@ Design document for integrating Harness CI/CD support into jolt alongside GitHub
 ## Goals
 
 1. Support multiple CI/CD platforms (GitHub Actions + Harness)
-2. Provide unified TUI for viewing runners, executions, and logs
-3. Allow users to switch between platforms or view both
-4. Maintain similar navigation patterns across platforms
-5. Share common UI components where possible
+2. Provide **unified TUI** with both platforms in a single navigation flow
+3. Use platform badges to distinguish between GitHub and Harness resources
+4. Leverage the identical 7-level hierarchy for seamless unified navigation
+5. Share all UI components across both platforms
+
+## Key Discovery
+
+GitHub Actions and Harness have **identical hierarchical structures**:
+
+| GitHub Actions | Harness CI/CD |
+|----------------|---------------|
+| (Implicit Account) | Account |
+| Owner (user/org) | Organization |
+| Repository | Project |
+| Workflow | Pipeline |
+| Run | Execution |
+| Job | Stage |
+| Step | Step |
+
+This perfect 1:1 mapping enables a truly unified navigation experience.
 
 ## Architecture Overview
 
@@ -293,35 +309,48 @@ pub enum HarnessError {
 
 ## Navigation Structure
 
+### Unified Hierarchy
+
+Since GitHub and Harness have identical hierarchies, we use a single navigation flow:
+
+```
+Organizations/Owners (mixed list with platform badges)
+  └── Projects/Repositories
+      └── Pipelines/Workflows
+          └── Executions/Runs
+              └── Jobs/Stages
+                  └── Steps
+                      └── Logs
+```
+
 ### Breadcrumb Navigation
 
-**Harness:**
+Show platform badge in breadcrumb:
+
+**GitHub Example:**
 ```
-Account → Organization → Project → Runners/Executions
+[GH] phatblat > jolt > CI > run #123 > build > setup
 ```
 
-**GitHub:**
+**Harness Example:**
 ```
-Repository → Workflows → Runs
+[HR] acme-corp > api-gateway > deploy > exec #456 > test > run-tests
 ```
+
+The breadcrumb shows the full navigation path from organization down to the current step.
 
 ### Tab Structure
 
-Two approaches (configurable):
-
-**Option 1: Platform Tabs**
-```
-[GitHub] [Harness] [Console]
-```
-Within each platform tab, show runners/workflows as sub-views.
-
-**Option 2: Unified View**
+**Unified Tabs (No Platform Separation):**
 ```
 [Runners] [Workflows] [Console]
 ```
-Show both platforms within each tab, with platform filter/selector.
 
-Initial implementation: Option 1 (simpler)
+- **Runners Tab**: Shows all runners from both GitHub and Harness, with platform badges
+- **Workflows Tab**: Shows unified navigation through the 7-level hierarchy
+- **Console Tab**: Shows messages from both platforms
+
+No separate platform tabs needed since the hierarchies are identical.
 
 ## UI Components
 
@@ -434,10 +463,17 @@ toml = "0.8"                  # Config file parsing
 ## Open Questions
 
 1. How to handle Harness self-managed installations with different base URLs?
-2. Should we support both GitHub and Harness simultaneously in one view?
-3. How to handle long-running WebSocket connections on slow networks?
-4. Should we cache organization/project structure or always fetch fresh?
-5. How to handle different API versions if Harness updates their API?
+   - **Answer**: Support via `HARNESS_BASE_URL` environment variable
+2. How to handle long-running WebSocket connections on slow networks?
+   - Need reconnection logic and fallback to HTTP polling
+3. Should we cache organization/project structure or always fetch fresh?
+   - **Answer**: Cache with 1-hour TTL (changes infrequently)
+4. How to handle different API versions if Harness updates their API?
+   - Version detection and graceful degradation
+5. How to sort mixed platform lists (alphabetical, by update time, by platform)?
+   - **Initial**: Alphabetical within each platform, GitHub first, then Harness
+6. Should we allow filtering by platform in unified views?
+   - **Yes**: Add filter toggle in UI (e.g., press 'f' to filter by platform)
 
 ## Future Enhancements
 
