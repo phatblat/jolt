@@ -5,6 +5,7 @@ mod app;
 mod cache;
 mod error;
 mod github;
+mod harness;
 mod state;
 mod ui;
 
