@@ -1,7 +1,7 @@
 // Harness API HTTP client.
 // Handles authentication, request/response processing, and error handling.
 
-use reqwest::{header::HeaderMap, header::HeaderValue, Client, Response, StatusCode};
+use reqwest::{Client, Response, StatusCode, header::HeaderMap, header::HeaderValue};
 use serde::de::DeserializeOwned;
 
 use super::error::{HarnessError, Result};
@@ -62,8 +62,8 @@ impl HarnessClient {
         let account_id = std::env::var("HARNESS_ACCOUNT_ID")
             .map_err(|_| HarnessError::MissingEnvVar("HARNESS_ACCOUNT_ID".to_string()))?;
 
-        let base_url = std::env::var("HARNESS_BASE_URL")
-            .unwrap_or_else(|_| DEFAULT_BASE_URL.to_string());
+        let base_url =
+            std::env::var("HARNESS_BASE_URL").unwrap_or_else(|_| DEFAULT_BASE_URL.to_string());
 
         Self::new(base_url, api_key, account_id)
     }
@@ -81,7 +81,12 @@ impl HarnessClient {
     /// Make a GET request to the Harness API.
     pub async fn get(&self, endpoint: &str) -> Result<Response> {
         let url = format!("{}{}", self.base_url, endpoint);
-        let response = self.client.get(&url).send().await.map_err(HarnessError::Http)?;
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(HarnessError::Http)?;
 
         self.check_response(response).await
     }
@@ -105,11 +110,7 @@ impl HarnessClient {
     }
 
     /// Make a POST request with JSON body.
-    pub async fn post<T: serde::Serialize>(
-        &self,
-        endpoint: &str,
-        body: &T,
-    ) -> Result<Response> {
+    pub async fn post<T: serde::Serialize>(&self, endpoint: &str, body: &T) -> Result<Response> {
         let url = format!("{}{}", self.base_url, endpoint);
         let response = self
             .client
@@ -123,10 +124,7 @@ impl HarnessClient {
     }
 
     /// Parse a Harness API response envelope.
-    pub async fn parse_response<T: DeserializeOwned>(
-        &self,
-        response: Response,
-    ) -> Result<T> {
+    pub async fn parse_response<T: DeserializeOwned>(&self, response: Response) -> Result<T> {
         let status_code = response.status();
         let text = response
             .text()
@@ -155,9 +153,9 @@ impl HarnessClient {
             });
         }
 
-        api_response.data.ok_or_else(|| {
-            HarnessError::ParseError("API response missing data field".to_string())
-        })
+        api_response
+            .data
+            .ok_or_else(|| HarnessError::ParseError("API response missing data field".to_string()))
     }
 
     /// Check response status and convert errors.
@@ -217,7 +215,10 @@ mod tests {
 
         let result = HarnessClient::from_env();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), HarnessError::MissingEnvVar(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            HarnessError::MissingEnvVar(_)
+        ));
     }
 
     #[test]
