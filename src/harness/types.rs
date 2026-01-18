@@ -66,3 +66,131 @@ pub enum ExecutionStatus {
     Queued,
     Paused,
 }
+
+/// Paginated response wrapper.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct PageResponse<T> {
+    pub content: Vec<T>,
+    #[serde(rename = "totalElements")]
+    pub total_elements: Option<i64>,
+    #[serde(rename = "totalPages")]
+    pub total_pages: Option<i64>,
+}
+
+/// Runner in Harness.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Runner {
+    pub identifier: String,
+    pub name: String,
+    pub status: RunnerStatus,
+    #[serde(rename = "lastHeartbeat")]
+    pub last_heartbeat: Option<i64>,
+    #[serde(rename = "ipAddress")]
+    pub ip_address: Option<String>,
+    pub capacity: Option<i32>,
+    #[serde(rename = "runningBuilds")]
+    pub running_builds: Option<i32>,
+}
+
+/// Pipeline in Harness.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Pipeline {
+    pub identifier: String,
+    pub name: String,
+    #[serde(rename = "projectIdentifier")]
+    pub project_identifier: String,
+    #[serde(rename = "orgIdentifier")]
+    pub org_identifier: String,
+}
+
+/// Pipeline execution summary.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Execution {
+    #[serde(rename = "planExecutionId")]
+    pub plan_execution_id: String,
+    #[serde(rename = "pipelineIdentifier")]
+    pub pipeline_identifier: String,
+    pub status: ExecutionStatus,
+    #[serde(rename = "startTs")]
+    pub start_ts: i64,
+    #[serde(rename = "endTs")]
+    pub end_ts: Option<i64>,
+    pub name: Option<String>,
+}
+
+/// Pipeline execution details with stages and steps.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ExecutionDetails {
+    #[serde(rename = "planExecutionId")]
+    pub plan_execution_id: String,
+    #[serde(rename = "pipelineIdentifier")]
+    pub pipeline_identifier: String,
+    pub status: ExecutionStatus,
+    #[serde(rename = "startTs")]
+    pub start_ts: i64,
+    #[serde(rename = "endTs")]
+    pub end_ts: Option<i64>,
+    #[serde(rename = "stageExecutions")]
+    pub stage_executions: Vec<StageExecution>,
+}
+
+/// Stage execution within a pipeline execution.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct StageExecution {
+    #[serde(rename = "stageIdentifier")]
+    pub stage_identifier: String,
+    #[serde(rename = "stageName")]
+    pub stage_name: Option<String>,
+    pub status: ExecutionStatus,
+    #[serde(rename = "startTs")]
+    pub start_ts: i64,
+    #[serde(rename = "endTs")]
+    pub end_ts: Option<i64>,
+    #[serde(rename = "stepExecutions")]
+    pub step_executions: Option<Vec<StepExecution>>,
+}
+
+/// Step execution within a stage.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct StepExecution {
+    #[serde(rename = "stepIdentifier")]
+    pub step_identifier: String,
+    #[serde(rename = "stepName")]
+    pub step_name: Option<String>,
+    pub status: ExecutionStatus,
+    #[serde(rename = "startTs")]
+    pub start_ts: i64,
+    #[serde(rename = "endTs")]
+    pub end_ts: Option<i64>,
+}
+
+/// Log line from execution.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct LogLine {
+    pub level: Option<String>,
+    pub time: Option<String>,
+    pub message: String,
+    pub pos: Option<i64>,
+}
+
+/// Log response with pagination.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct LogResponse {
+    #[serde(rename = "logLines")]
+    pub log_lines: Vec<LogLine>,
+    pub more: Option<bool>,
+    #[serde(rename = "nextToken")]
+    pub next_token: Option<String>,
+}
+
+/// Execution filter for listing executions.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct ExecutionFilter {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<Vec<ExecutionStatus>>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "pipelineIdentifiers"
+    )]
+    pub pipeline_ids: Option<Vec<String>>,
+}

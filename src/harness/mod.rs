@@ -4,6 +4,7 @@
 #![allow(dead_code, unused_imports)]
 
 pub mod client;
+pub mod endpoints;
 pub mod error;
 pub mod types;
 
