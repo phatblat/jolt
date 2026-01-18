@@ -6,7 +6,9 @@ mod cache;
 mod error;
 mod github;
 mod harness;
+mod platform;
 mod state;
+mod types;
 mod ui;
 
 use std::io;
