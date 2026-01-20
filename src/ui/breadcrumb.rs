@@ -6,6 +6,8 @@ use ratatui::{prelude::*, widgets::*};
 
 use crate::state::navigation::BreadcrumbNode;
 use crate::state::runners::RunnersBreadcrumb;
+use crate::types::Platform;
+use crate::ui::platform_badge;
 
 /// Format timestamp for display in ISO 8601 format with local timezone.
 fn format_timestamp(dt: &DateTime<Utc>) -> String {
@@ -21,10 +23,28 @@ pub fn draw_breadcrumb(
     timestamp: Option<DateTime<Utc>>,
     _current_branch: Option<&str>,
 ) {
+    draw_breadcrumb_with_platform(frame, breadcrumbs, area, timestamp, _current_branch, None);
+}
+
+/// Render the breadcrumb trail with optional platform badge.
+pub fn draw_breadcrumb_with_platform(
+    frame: &mut Frame,
+    breadcrumbs: &[BreadcrumbNode],
+    area: Rect,
+    timestamp: Option<DateTime<Utc>>,
+    _current_branch: Option<&str>,
+    platform: Option<Platform>,
+) {
     let mut spans = Vec::new();
 
+    // Add platform badge at the start if provided
+    if let Some(platform) = platform {
+        spans.push(platform_badge::render_badge(platform));
+        spans.push(Span::raw(" "));
+    }
+
     for (i, node) in breadcrumbs.iter().enumerate() {
-        if i > 0 {
+        if i > 0 || platform.is_some() {
             spans.push(Span::styled(" > ", Style::default().fg(Color::DarkGray)));
         }
 
@@ -81,10 +101,27 @@ pub fn draw_runners_breadcrumb(
     area: Rect,
     timestamp: Option<DateTime<Utc>>,
 ) {
+    draw_runners_breadcrumb_with_platform(frame, breadcrumbs, area, timestamp, None);
+}
+
+/// Render the breadcrumb trail for Runners tab with optional platform badge.
+pub fn draw_runners_breadcrumb_with_platform(
+    frame: &mut Frame,
+    breadcrumbs: &[RunnersBreadcrumb],
+    area: Rect,
+    timestamp: Option<DateTime<Utc>>,
+    platform: Option<Platform>,
+) {
     let mut spans = Vec::new();
 
+    // Add platform badge at the start if provided
+    if let Some(platform) = platform {
+        spans.push(platform_badge::render_badge(platform));
+        spans.push(Span::raw(" "));
+    }
+
     for (i, node) in breadcrumbs.iter().enumerate() {
-        if i > 0 {
+        if i > 0 || platform.is_some() {
             spans.push(Span::styled(" > ", Style::default().fg(Color::DarkGray)));
         }
 

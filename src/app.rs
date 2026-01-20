@@ -13,11 +13,13 @@ use crate::cache;
 use crate::error::JoltError;
 use crate::github::GitHubClient;
 use crate::github::types::RateLimit;
+use crate::platform::{Platform as PlatformTrait, github::GitHubPlatform, harness::HarnessPlatform};
 use crate::state::{
     AnalysisSession, AnalyzeTabState, AnalyzeViewLevel, LoadingState, NavigationContext,
     NavigationStack, RunMetadata, RunnersNavStack, RunnersTabState, RunnersViewLevel, SourceTab,
     SyncTabState, ViewLevel, WorkflowsTabState,
 };
+use crate::types::Platform;
 use crate::ui;
 
 /// Active tab in the application.
@@ -56,6 +58,92 @@ impl Tab {
             Tab::Analyze => Tab::Workflows,
             Tab::Sync => Tab::Analyze,
         }
+    }
+}
+
+/// Platform manager for handling multiple CI/CD platforms.
+pub struct PlatformManager {
+    /// List of available platforms.
+    #[allow(dead_code)]
+    platforms: Vec<Box<dyn PlatformTrait>>,
+    /// Available platform types.
+    #[allow(dead_code)]
+    available_platforms: Vec<Platform>,
+}
+
+impl PlatformManager {
+    /// Create a new platform manager by initializing platforms from environment variables.
+    pub fn new() -> Self {
+        let mut platforms: Vec<Box<dyn PlatformTrait>> = Vec::new();
+        let mut available_platforms = Vec::new();
+
+        // Try to initialize GitHub platform
+        if let Ok(github) = GitHubPlatform::from_env() {
+            available_platforms.push(Platform::GitHub);
+            platforms.push(Box::new(github));
+        } else {
+            eprintln!("GitHub platform not available (GITHUB_TOKEN not set)");
+        }
+
+        // Try to initialize Harness platform
+        if let Ok(harness) = HarnessPlatform::from_env() {
+            available_platforms.push(Platform::Harness);
+            platforms.push(Box::new(harness));
+        } else {
+            eprintln!("Harness platform not available (HARNESS_API_KEY not set)");
+        }
+
+        Self {
+            platforms,
+            available_platforms,
+        }
+    }
+
+    /// Get all available platforms.
+    #[allow(dead_code)]
+    pub fn platforms(&self) -> &[Box<dyn PlatformTrait>] {
+        &self.platforms
+    }
+
+    /// Get mutable access to all platforms.
+    #[allow(dead_code)]
+    pub fn platforms_mut(&mut self) -> &mut [Box<dyn PlatformTrait>] {
+        &mut self.platforms
+    }
+
+    /// Get list of available platform types.
+    #[allow(dead_code)]
+    pub fn available_platforms(&self) -> &[Platform] {
+        &self.available_platforms
+    }
+
+    /// Check if any platforms are available.
+    #[allow(dead_code)]
+    pub fn has_platforms(&self) -> bool {
+        !self.platforms.is_empty()
+    }
+
+    /// Get a specific platform by type.
+    #[allow(dead_code)]
+    pub fn get_platform(&self, platform_type: Platform) -> Option<&dyn PlatformTrait> {
+        self.platforms
+            .iter()
+            .find(|p| p.platform_type() == platform_type)
+            .map(|b| &**b)
+    }
+
+    /// Get mutable access to a specific platform by type.
+    #[allow(dead_code)]
+    pub fn get_platform_mut(
+        &mut self,
+        platform_type: Platform,
+    ) -> Option<&mut (dyn PlatformTrait + '_)> {
+        for platform in &mut self.platforms {
+            if platform.platform_type() == platform_type {
+                return Some(platform.as_mut());
+            }
+        }
+        None
     }
 }
 
@@ -147,6 +235,9 @@ pub struct App {
     pub search_matches: Vec<usize>,
     /// Index of current match in search_matches.
     pub search_match_index: usize,
+    /// Platform manager for unified platform access.
+    #[allow(dead_code)]
+    pub platform_manager: PlatformManager,
     /// GitHub API client (None if no token).
     pub github_client: Option<GitHubClient>,
     /// Workflows tab state.
@@ -221,6 +312,9 @@ impl App {
             runners.log_scroll_y = state.scroll_y;
         }
 
+        // Initialize platform manager with available platforms
+        let platform_manager = PlatformManager::new();
+
         Self {
             active_tab: persisted.active_tab,
             should_quit: false,
@@ -229,6 +323,7 @@ impl App {
             search_query: String::new(),
             search_matches: Vec::new(),
             search_match_index: 0,
+            platform_manager,
             github_client,
             workflows,
             runners,

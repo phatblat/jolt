@@ -4,6 +4,7 @@
 mod breadcrumb;
 mod list;
 mod modal;
+pub mod platform_badge;
 mod tabs;
 
 use ratatui::{prelude::*, widgets::*};
