@@ -3,7 +3,7 @@
 
 use ratatui::widgets::ListState;
 
-use crate::github::{Job, Owner, Repository, Workflow, WorkflowRun};
+use crate::github::{Job, JobGroup, JobListItem, Owner, Repository, Workflow, WorkflowRun};
 
 use super::navigation::{NavigationStack, ViewLevel};
 
@@ -91,6 +91,7 @@ pub struct SelectableList<T> {
     pub data: LoadingState<PaginatedList<T>>,
     pub list_state: ListState,
     pub filter: Option<String>,
+    pub last_updated: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl<T> Default for SelectableList<T> {
@@ -99,6 +100,7 @@ impl<T> Default for SelectableList<T> {
             data: LoadingState::Idle,
             list_state: ListState::default(),
             filter: None,
+            last_updated: None,
         }
     }
 }
@@ -185,6 +187,7 @@ impl<T> SelectableList<T> {
     /// Set loaded data.
     pub fn set_loaded(&mut self, items: Vec<T>, total_count: u64) {
         self.data = LoadingState::Loaded(PaginatedList::new(items, total_count));
+        self.last_updated = Some(chrono::Utc::now());
         self.reset_selection();
     }
 
@@ -212,14 +215,32 @@ pub struct WorkflowsTabState {
     pub workflows: SelectableList<Workflow>,
     /// Workflow runs list for current workflow.
     pub runs: SelectableList<WorkflowRun>,
-    /// Jobs list for current run.
+    /// Jobs list for current run (raw jobs before grouping).
     pub jobs: SelectableList<Job>,
+    /// Grouped jobs with attempts.
+    pub job_groups: Vec<JobGroup>,
+    /// Flattened job list items for display.
+    pub job_list_items: Vec<JobListItem>,
     /// Log content for current job.
     pub log_content: LoadingState<String>,
     /// Horizontal scroll offset for log viewer.
     pub log_scroll_x: u16,
     /// Vertical scroll offset for log viewer.
     pub log_scroll_y: u16,
+    /// Selection anchor line in log viewer (0-indexed).
+    pub log_selection_anchor: usize,
+    /// Selection cursor line in log viewer (0-indexed).
+    pub log_selection_cursor: usize,
+    /// Whether branch selection modal is shown.
+    pub branch_modal_visible: bool,
+    /// Text input for branch name in modal.
+    pub branch_input: String,
+    /// Current selected branch (None = default branch).
+    pub current_branch: Option<String>,
+    /// History of previously used branches.
+    pub branch_history: Vec<String>,
+    /// Selected index in branch history list.
+    pub branch_history_selection: usize,
 }
 
 impl Default for WorkflowsTabState {
@@ -231,9 +252,18 @@ impl Default for WorkflowsTabState {
             workflows: SelectableList::new(),
             runs: SelectableList::new(),
             jobs: SelectableList::new(),
+            job_groups: Vec::new(),
+            job_list_items: Vec::new(),
             log_content: LoadingState::Idle,
             log_scroll_x: 0,
             log_scroll_y: 0,
+            log_selection_anchor: 0,
+            log_selection_cursor: 0,
+            branch_modal_visible: false,
+            branch_input: String::new(),
+            current_branch: None,
+            branch_history: Vec::new(),
+            branch_history_selection: 0,
         }
     }
 }
@@ -262,27 +292,37 @@ impl WorkflowsTabState {
                     self.workflows = SelectableList::new();
                     self.runs = SelectableList::new();
                     self.jobs = SelectableList::new();
+                    self.job_groups = Vec::new();
+                    self.job_list_items = Vec::new();
                     self.log_content = LoadingState::Idle;
                 }
                 ViewLevel::Workflows { .. } => {
                     self.workflows = SelectableList::new();
                     self.runs = SelectableList::new();
                     self.jobs = SelectableList::new();
+                    self.job_groups = Vec::new();
+                    self.job_list_items = Vec::new();
                     self.log_content = LoadingState::Idle;
                 }
                 ViewLevel::Runs { .. } => {
                     self.runs = SelectableList::new();
                     self.jobs = SelectableList::new();
+                    self.job_groups = Vec::new();
+                    self.job_list_items = Vec::new();
                     self.log_content = LoadingState::Idle;
                 }
                 ViewLevel::Jobs { .. } => {
                     self.jobs = SelectableList::new();
+                    self.job_groups = Vec::new();
+                    self.job_list_items = Vec::new();
                     self.log_content = LoadingState::Idle;
                 }
                 ViewLevel::Logs { .. } => {
                     self.log_content = LoadingState::Idle;
                     self.log_scroll_x = 0;
                     self.log_scroll_y = 0;
+                    self.log_selection_anchor = 0;
+                    self.log_selection_cursor = 0;
                 }
                 ViewLevel::Owners => {}
             }
@@ -372,11 +412,89 @@ impl WorkflowsTabState {
             ViewLevel::Repositories { .. } => self.repositories = SelectableList::new(),
             ViewLevel::Workflows { .. } => self.workflows = SelectableList::new(),
             ViewLevel::Runs { .. } => self.runs = SelectableList::new(),
-            ViewLevel::Jobs { .. } => self.jobs = SelectableList::new(),
+            ViewLevel::Jobs { .. } => {
+                self.jobs = SelectableList::new();
+                self.job_groups = Vec::new();
+                self.job_list_items = Vec::new();
+            }
             ViewLevel::Logs { .. } => {
                 self.log_content = LoadingState::Idle;
                 self.log_scroll_x = 0;
                 self.log_scroll_y = 0;
+                self.log_selection_anchor = 0;
+                self.log_selection_cursor = 0;
+            }
+        }
+    }
+
+    /// Get the current selection range (start, end) as 0-indexed line numbers.
+    pub fn log_selection_range(&self) -> (usize, usize) {
+        let start = self.log_selection_anchor.min(self.log_selection_cursor);
+        let end = self.log_selection_anchor.max(self.log_selection_cursor);
+        (start, end)
+    }
+
+    /// Move selection cursor up (with optional extend for shift+up).
+    pub fn selection_up(&mut self, extend: bool) {
+        if let LoadingState::Loaded(_) = &self.log_content {
+            if self.log_selection_cursor > 0 {
+                self.log_selection_cursor -= 1;
+                if !extend {
+                    self.log_selection_anchor = self.log_selection_cursor;
+                }
+            }
+        }
+    }
+
+    /// Move selection cursor down (with optional extend for shift+down).
+    pub fn selection_down(&mut self, extend: bool) {
+        if let LoadingState::Loaded(logs) = &self.log_content {
+            let max_line = logs.lines().count().saturating_sub(1);
+            if self.log_selection_cursor < max_line {
+                self.log_selection_cursor += 1;
+                if !extend {
+                    self.log_selection_anchor = self.log_selection_cursor;
+                }
+            }
+        }
+    }
+
+    /// Move selection to start of file.
+    pub fn selection_to_start(&mut self, extend: bool) {
+        self.log_selection_cursor = 0;
+        if !extend {
+            self.log_selection_anchor = 0;
+        }
+    }
+
+    /// Move selection to end of file.
+    pub fn selection_to_end(&mut self, extend: bool) {
+        if let LoadingState::Loaded(logs) = &self.log_content {
+            let max_line = logs.lines().count().saturating_sub(1);
+            self.log_selection_cursor = max_line;
+            if !extend {
+                self.log_selection_anchor = max_line;
+            }
+        }
+    }
+
+    /// Move selection up by a page.
+    pub fn selection_page_up(&mut self, extend: bool) {
+        if let LoadingState::Loaded(_) = &self.log_content {
+            self.log_selection_cursor = self.log_selection_cursor.saturating_sub(20);
+            if !extend {
+                self.log_selection_anchor = self.log_selection_cursor;
+            }
+        }
+    }
+
+    /// Move selection down by a page.
+    pub fn selection_page_down(&mut self, extend: bool) {
+        if let LoadingState::Loaded(logs) = &self.log_content {
+            let max_line = logs.lines().count().saturating_sub(1);
+            self.log_selection_cursor = (self.log_selection_cursor + 20).min(max_line);
+            if !extend {
+                self.log_selection_anchor = self.log_selection_cursor;
             }
         }
     }

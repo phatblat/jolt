@@ -1,20 +1,20 @@
 // App state and main event loop.
 // Manages tabs, navigation state, and keyboard input handling.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io;
 use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::prelude::*;
-use ratatui::widgets::ListState;
 use serde::{Deserialize, Serialize};
 
 use crate::cache;
 use crate::github::GitHubClient;
 use crate::state::{
-    LoadingState, NavigationStack, RunnersNavStack, RunnersTabState, RunnersViewLevel, ViewLevel,
-    WorkflowsTabState,
+    AnalysisSession, AnalyzeTabState, AnalyzeViewLevel, LoadingState, NavigationContext,
+    NavigationStack, RunMetadata, RunnersNavStack, RunnersTabState, RunnersViewLevel, SourceTab,
+    SyncTabState, ViewLevel, WorkflowsTabState,
 };
 use crate::ui;
 
@@ -24,7 +24,8 @@ pub enum Tab {
     Runners,
     #[default]
     Workflows,
-    Console,
+    Analyze,
+    Sync,
 }
 
 impl Tab {
@@ -32,66 +33,39 @@ impl Tab {
         match self {
             Tab::Runners => "Runners",
             Tab::Workflows => "Workflows",
-            Tab::Console => "Console",
+            Tab::Analyze => "Analyze",
+            Tab::Sync => "Sync",
         }
     }
 
     pub fn next(&self) -> Self {
         match self {
             Tab::Runners => Tab::Workflows,
-            Tab::Workflows => Tab::Console,
-            Tab::Console => Tab::Runners,
+            Tab::Workflows => Tab::Analyze,
+            Tab::Analyze => Tab::Sync,
+            Tab::Sync => Tab::Runners,
         }
     }
 
     pub fn prev(&self) -> Self {
         match self {
-            Tab::Runners => Tab::Console,
+            Tab::Runners => Tab::Sync,
             Tab::Workflows => Tab::Runners,
-            Tab::Console => Tab::Workflows,
+            Tab::Analyze => Tab::Workflows,
+            Tab::Sync => Tab::Analyze,
         }
     }
 }
 
-/// Console message for the Console tab.
-#[derive(Debug, Clone)]
-pub struct ConsoleMessage {
-    pub level: ConsoleLevel,
-    pub message: String,
-    pub timestamp: chrono::DateTime<chrono::Utc>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ConsoleLevel {
-    Info,
-    Warn,
-    Error,
-}
-
-impl ConsoleMessage {
-    pub fn error(message: impl Into<String>) -> Self {
-        Self {
-            level: ConsoleLevel::Error,
-            message: message.into(),
-            timestamp: chrono::Utc::now(),
-        }
-    }
-
-    pub fn warn(message: impl Into<String>) -> Self {
-        Self {
-            level: ConsoleLevel::Warn,
-            message: message.into(),
-            timestamp: chrono::Utc::now(),
-        }
-    }
-
-    pub fn info(message: impl Into<String>) -> Self {
-        Self {
-            level: ConsoleLevel::Info,
-            message: message.into(),
-            timestamp: chrono::Utc::now(),
-        }
-    }
+/// Saved view state for a log file.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct LogViewState {
+    /// Selection anchor line (0-indexed).
+    pub selection_anchor: usize,
+    /// Selection cursor line (0-indexed).
+    pub selection_cursor: usize,
+    /// Vertical scroll position.
+    pub scroll_y: u16,
 }
 
 /// Persisted application state saved between sessions.
@@ -105,6 +79,9 @@ pub struct PersistedState {
     /// Runners tab navigation stack.
     #[serde(default)]
     pub runners_nav: Option<RunnersNavStack>,
+    /// Per-log view state, keyed by job_id.
+    #[serde(default)]
+    pub log_view_states: HashMap<u64, LogViewState>,
     /// Favorite owners (by login).
     #[serde(default)]
     pub favorite_owners: HashSet<String>,
@@ -117,6 +94,12 @@ pub struct PersistedState {
     /// Favorite runners (as "owner/repo/runner_name").
     #[serde(default)]
     pub favorite_runners: HashSet<String>,
+    /// Branch history for workflows tab.
+    #[serde(default)]
+    pub branch_history: Vec<String>,
+    /// Currently selected branch for workflows tab.
+    #[serde(default)]
+    pub current_branch: Option<String>,
 }
 
 impl PersistedState {
@@ -150,12 +133,6 @@ impl PersistedState {
 pub struct App {
     /// Currently active tab.
     pub active_tab: Tab,
-    /// Number of unread console errors (for badge).
-    pub console_unread: usize,
-    /// Console messages.
-    pub console_messages: Vec<ConsoleMessage>,
-    /// Console list selection state.
-    pub console_list_state: ListState,
     /// Whether the app should exit.
     pub should_quit: bool,
     /// Whether to show the help overlay.
@@ -174,6 +151,14 @@ pub struct App {
     pub workflows: WorkflowsTabState,
     /// Runners tab state.
     pub runners: RunnersTabState,
+    /// Analyze tab state.
+    pub analyze: AnalyzeTabState,
+    /// Sync tab state.
+    pub sync: SyncTabState,
+    /// Per-log view states, keyed by job_id.
+    pub log_view_states: HashMap<u64, LogViewState>,
+    /// When clipboard flash indicator should expire.
+    pub clipboard_flash_until: Option<std::time::Instant>,
     /// Favorite owners.
     pub favorite_owners: HashSet<String>,
     /// Favorite repositories.
@@ -204,16 +189,32 @@ impl App {
         if let Some(nav) = persisted.workflows_nav {
             workflows.nav = nav;
         }
+        workflows.branch_history = persisted.branch_history;
+        workflows.current_branch = persisted.current_branch;
+
         let mut runners = RunnersTabState::new();
         if let Some(nav) = persisted.runners_nav {
             runners.nav = nav;
         }
 
+        // Restore log view state for current job if viewing logs
+        if let ViewLevel::Logs { job_id, .. } = workflows.nav.current() {
+            if let Some(state) = persisted.log_view_states.get(job_id) {
+                workflows.log_selection_anchor = state.selection_anchor;
+                workflows.log_selection_cursor = state.selection_cursor;
+                workflows.log_scroll_y = state.scroll_y;
+            }
+        }
+        if let RunnersViewLevel::Logs { job_id, .. } = runners.nav.current() {
+            if let Some(state) = persisted.log_view_states.get(job_id) {
+                runners.log_selection_anchor = state.selection_anchor;
+                runners.log_selection_cursor = state.selection_cursor;
+                runners.log_scroll_y = state.scroll_y;
+            }
+        }
+
         Self {
             active_tab: persisted.active_tab,
-            console_unread: 0,
-            console_messages: Vec::new(),
-            console_list_state: ListState::default(),
             should_quit: false,
             show_help: false,
             search_active: false,
@@ -223,6 +224,10 @@ impl App {
             github_client,
             workflows,
             runners,
+            analyze: AnalyzeTabState::new(),
+            sync: SyncTabState::new(),
+            log_view_states: persisted.log_view_states,
+            clipboard_flash_until: None,
             favorite_owners: persisted.favorite_owners,
             favorite_repos: persisted.favorite_repos,
             favorite_workflows: persisted.favorite_workflows,
@@ -232,16 +237,96 @@ impl App {
 
     /// Save application state for next session.
     pub fn save_state(&self) {
+        // Save current log view state to the map
+        let mut log_view_states = self.log_view_states.clone();
+
+        // Save workflows log state if viewing logs
+        if let ViewLevel::Logs { job_id, .. } = self.workflows.nav.current() {
+            log_view_states.insert(
+                *job_id,
+                LogViewState {
+                    selection_anchor: self.workflows.log_selection_anchor,
+                    selection_cursor: self.workflows.log_selection_cursor,
+                    scroll_y: self.workflows.log_scroll_y,
+                },
+            );
+        }
+
+        // Save runners log state if viewing logs
+        if let RunnersViewLevel::Logs { job_id, .. } = self.runners.nav.current() {
+            log_view_states.insert(
+                *job_id,
+                LogViewState {
+                    selection_anchor: self.runners.log_selection_anchor,
+                    selection_cursor: self.runners.log_selection_cursor,
+                    scroll_y: self.runners.log_scroll_y,
+                },
+            );
+        }
+
         let state = PersistedState {
             active_tab: self.active_tab,
             workflows_nav: Some(self.workflows.nav.clone()),
             runners_nav: Some(self.runners.nav.clone()),
+            log_view_states,
             favorite_owners: self.favorite_owners.clone(),
             favorite_repos: self.favorite_repos.clone(),
             favorite_workflows: self.favorite_workflows.clone(),
             favorite_runners: self.favorite_runners.clone(),
+            branch_history: self.workflows.branch_history.clone(),
+            current_branch: self.workflows.current_branch.clone(),
         };
         state.save();
+    }
+
+    /// Save current log view state for the active job.
+    fn save_current_log_state(&mut self) {
+        match self.active_tab {
+            Tab::Workflows => {
+                if let ViewLevel::Logs { job_id, .. } = self.workflows.nav.current() {
+                    self.log_view_states.insert(
+                        *job_id,
+                        LogViewState {
+                            selection_anchor: self.workflows.log_selection_anchor,
+                            selection_cursor: self.workflows.log_selection_cursor,
+                            scroll_y: self.workflows.log_scroll_y,
+                        },
+                    );
+                }
+            }
+            Tab::Runners => {
+                if let RunnersViewLevel::Logs { job_id, .. } = self.runners.nav.current() {
+                    self.log_view_states.insert(
+                        *job_id,
+                        LogViewState {
+                            selection_anchor: self.runners.log_selection_anchor,
+                            selection_cursor: self.runners.log_selection_cursor,
+                            scroll_y: self.runners.log_scroll_y,
+                        },
+                    );
+                }
+            }
+            Tab::Analyze | Tab::Sync => {}
+        }
+    }
+
+    /// Restore log view state for a job if previously saved.
+    fn restore_log_state(&mut self, job_id: u64) {
+        if let Some(state) = self.log_view_states.get(&job_id) {
+            match self.active_tab {
+                Tab::Workflows => {
+                    self.workflows.log_selection_anchor = state.selection_anchor;
+                    self.workflows.log_selection_cursor = state.selection_cursor;
+                    self.workflows.log_scroll_y = state.scroll_y;
+                }
+                Tab::Runners => {
+                    self.runners.log_selection_anchor = state.selection_anchor;
+                    self.runners.log_selection_cursor = state.selection_cursor;
+                    self.runners.log_scroll_y = state.scroll_y;
+                }
+                Tab::Analyze | Tab::Sync => {}
+            }
+        }
     }
 
     /// Main event loop.
@@ -299,65 +384,111 @@ impl App {
                         return Ok(());
                     }
 
-                    // Handle Ctrl modifier keys first
-                    if key.modifiers.contains(KeyModifiers::CONTROL) {
+                    // When branch modal is active, handle input
+                    if self.active_tab == Tab::Workflows && self.workflows.branch_modal_visible {
                         match key.code {
-                            KeyCode::Char('d') => self.handle_page_down(),
-                            KeyCode::Char('u') => self.handle_page_up(),
-                            KeyCode::Char('f') => self.handle_page_down(),
-                            KeyCode::Char('b') => self.handle_page_up(),
+                            KeyCode::Esc => {
+                                self.workflows.branch_modal_visible = false;
+                                self.workflows.branch_input.clear();
+                                self.workflows.branch_history_selection = 0;
+                            }
+                            KeyCode::Enter => {
+                                self.handle_branch_switch().await;
+                            }
+                            KeyCode::Up => {
+                                if !self.workflows.branch_history.is_empty() {
+                                    if self.workflows.branch_history_selection > 0 {
+                                        self.workflows.branch_history_selection -= 1;
+                                    }
+                                }
+                            }
+                            KeyCode::Down => {
+                                if !self.workflows.branch_history.is_empty() {
+                                    let max = self.workflows.branch_history.len() - 1;
+                                    if self.workflows.branch_history_selection < max {
+                                        self.workflows.branch_history_selection += 1;
+                                    }
+                                }
+                            }
+                            KeyCode::Backspace => {
+                                self.workflows.branch_input.pop();
+                            }
+                            KeyCode::Char(c) => {
+                                self.workflows.branch_input.push(c);
+                            }
                             _ => {}
                         }
                         return Ok(());
                     }
+
+                    // Handle Ctrl modifier keys first
+                    if key.modifiers.contains(KeyModifiers::CONTROL) {
+                        let shift_held = key.modifiers.contains(KeyModifiers::SHIFT);
+                        match key.code {
+                            KeyCode::Char('d') => self.handle_page_down(shift_held),
+                            KeyCode::Char('u') => self.handle_page_up(shift_held),
+                            KeyCode::Char('f') => self.handle_page_down(shift_held),
+                            KeyCode::Char('b') => self.handle_page_up(shift_held),
+                            _ => {}
+                        }
+                        return Ok(());
+                    }
+
+                    // Check if shift is held for selection extension
+                    let shift_held = key.modifiers.contains(KeyModifiers::SHIFT);
 
                     match key.code {
                         KeyCode::Char('q') => self.should_quit = true,
                         KeyCode::Char('?') => self.show_help = true,
                         KeyCode::Tab => {
                             self.active_tab = self.active_tab.next();
-                            self.clear_console_badge_if_viewing();
                             self.on_tab_change().await;
                         }
                         KeyCode::BackTab => {
                             self.active_tab = self.active_tab.prev();
-                            self.clear_console_badge_if_viewing();
                             self.on_tab_change().await;
+                        }
+                        // Global sync toggle (Shift+S)
+                        KeyCode::Char('S') => {
+                            self.toggle_sync();
                         }
                         // Direct tab selection
                         KeyCode::Char('1') => {
                             self.active_tab = Tab::Runners;
-                            self.clear_console_badge_if_viewing();
                             self.on_tab_change().await;
                         }
                         KeyCode::Char('2') => {
                             self.active_tab = Tab::Workflows;
-                            self.clear_console_badge_if_viewing();
                             self.on_tab_change().await;
                         }
                         KeyCode::Char('3') => {
-                            self.active_tab = Tab::Console;
-                            self.clear_console_badge_if_viewing();
+                            self.active_tab = Tab::Analyze;
+                            self.on_tab_change().await;
+                        }
+                        KeyCode::Char('4') => {
+                            self.active_tab = Tab::Sync;
                             self.on_tab_change().await;
                         }
                         // Arrow keys
-                        KeyCode::Up => self.handle_up(),
-                        KeyCode::Down => self.handle_down(),
+                        KeyCode::Up => self.handle_up(shift_held),
+                        KeyCode::Down => self.handle_down(shift_held),
                         KeyCode::Left => self.handle_left(),
                         KeyCode::Right => self.handle_right(),
                         // Vim navigation
-                        KeyCode::Char('k') => self.handle_up(),
-                        KeyCode::Char('j') => self.handle_down(),
+                        KeyCode::Char('k') => self.handle_up(shift_held),
+                        KeyCode::Char('j') => self.handle_down(shift_held),
+                        KeyCode::Char('K') => self.handle_up(true), // Uppercase extends selection
+                        KeyCode::Char('J') => self.handle_down(true), // Uppercase extends selection
                         KeyCode::Char('h') => self.handle_left(),
                         KeyCode::Char('l') => self.handle_right(),
                         // Page navigation
-                        KeyCode::PageUp => self.handle_page_up(),
-                        KeyCode::PageDown => self.handle_page_down(),
+                        KeyCode::PageUp => self.handle_page_up(shift_held),
+                        KeyCode::PageDown => self.handle_page_down(shift_held),
                         // Jump to start/end
-                        KeyCode::Home => self.handle_home(),
-                        KeyCode::End => self.handle_end(),
-                        KeyCode::Char('g') => self.handle_home(),
-                        KeyCode::Char('G') => self.handle_end(),
+                        KeyCode::Home => self.handle_home(shift_held),
+                        KeyCode::End => self.handle_end(shift_held),
+                        KeyCode::Char('g') => self.handle_home(false), // Vim: go to start
+                        KeyCode::Char('G') => self.handle_end(false),  // Vim: go to end
                         // Actions
                         KeyCode::Enter => self.handle_enter().await,
                         KeyCode::Esc => self.handle_escape().await,
@@ -365,6 +496,9 @@ impl App {
                         KeyCode::Char('/') => self.handle_search_start(),
                         KeyCode::Char('o') => self.handle_open_in_browser(),
                         KeyCode::Char('f') => self.toggle_favorite(),
+                        KeyCode::Char('c') => self.copy_selection(),
+                        KeyCode::Char('a') => self.save_to_analyze(),
+                        KeyCode::Char('b') => self.handle_branch_modal_open(),
                         // Search navigation
                         KeyCode::Char('n') => self.search_next(),
                         KeyCode::Char('N') => self.search_prev(),
@@ -373,24 +507,102 @@ impl App {
                 }
             }
         }
+
+        // Check if runners list needs auto-refresh
+        if self.active_tab == Tab::Runners {
+            if let RunnersViewLevel::Runners {
+                ref owner,
+                ref repo,
+            } = self.runners.nav.current().clone()
+            {
+                if let Some(next_refresh) = self.runners.runners_next_refresh {
+                    if std::time::Instant::now() >= next_refresh {
+                        // Time to refresh - force reload
+                        self.runners.runners.set_loading();
+                        let owner = owner.clone();
+                        let repo = repo.clone();
+                        let result = self
+                            .github_client
+                            .as_mut()
+                            .unwrap()
+                            .get_enriched_runners(&owner, &repo, 1, 30)
+                            .await;
+                        match result {
+                            Ok((runners, count)) => {
+                                self.runners.runners.set_loaded(runners, count);
+                            }
+                            Err(e) => {
+                                self.runners.runners.set_error(e.to_string());
+                            }
+                        }
+                        // Schedule next refresh
+                        self.runners.runners_next_refresh =
+                            Some(std::time::Instant::now() + std::time::Duration::from_secs(60));
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 
     /// Handle up arrow key.
-    fn handle_up(&mut self) {
+    fn handle_up(&mut self, shift_held: bool) {
         match self.active_tab {
-            Tab::Workflows => self.workflows.select_prev(),
-            Tab::Runners => self.runners.select_prev(),
-            Tab::Console => self.console_select_prev(),
+            Tab::Workflows => {
+                if matches!(self.workflows.nav.current(), ViewLevel::Logs { .. }) {
+                    self.workflows.selection_up(shift_held);
+                    self.scroll_to_selection();
+                } else {
+                    self.workflows.select_prev();
+                }
+            }
+            Tab::Runners => {
+                if matches!(self.runners.nav.current(), RunnersViewLevel::Logs { .. }) {
+                    self.runners.selection_up(shift_held);
+                    self.scroll_to_selection();
+                } else {
+                    self.runners.select_prev();
+                }
+            }
+            Tab::Analyze => {
+                if matches!(self.analyze.view, AnalyzeViewLevel::List) {
+                    self.analyze.select_prev();
+                } else {
+                    self.analyze.scroll_up();
+                }
+            }
+            Tab::Sync => self.sync.select_prev(),
         }
     }
 
     /// Handle down arrow key.
-    fn handle_down(&mut self) {
+    fn handle_down(&mut self, shift_held: bool) {
         match self.active_tab {
-            Tab::Workflows => self.workflows.select_next(),
-            Tab::Runners => self.runners.select_next(),
-            Tab::Console => self.console_select_next(),
+            Tab::Workflows => {
+                if matches!(self.workflows.nav.current(), ViewLevel::Logs { .. }) {
+                    self.workflows.selection_down(shift_held);
+                    self.scroll_to_selection();
+                } else {
+                    self.workflows.select_next();
+                }
+            }
+            Tab::Runners => {
+                if matches!(self.runners.nav.current(), RunnersViewLevel::Logs { .. }) {
+                    self.runners.selection_down(shift_held);
+                    self.scroll_to_selection();
+                } else {
+                    self.runners.select_next();
+                }
+            }
+            Tab::Analyze => {
+                if matches!(self.analyze.view, AnalyzeViewLevel::List) {
+                    self.analyze.select_next();
+                } else {
+                    self.analyze.scroll_down();
+                }
+            }
+            Tab::Sync => self.sync.select_next(),
         }
     }
 
@@ -399,7 +611,7 @@ impl App {
         match self.active_tab {
             Tab::Workflows => self.workflows.scroll_left(),
             Tab::Runners => self.runners.scroll_left(),
-            Tab::Console => {}
+            Tab::Analyze | Tab::Sync => {}
         }
     }
 
@@ -408,43 +620,101 @@ impl App {
         match self.active_tab {
             Tab::Workflows => self.workflows.scroll_right(),
             Tab::Runners => self.runners.scroll_right(),
-            Tab::Console => {}
+            Tab::Analyze | Tab::Sync => {}
         }
     }
 
     /// Handle Page Up key.
-    fn handle_page_up(&mut self) {
+    fn handle_page_up(&mut self, shift_held: bool) {
         match self.active_tab {
-            Tab::Workflows => self.workflows.page_up(),
-            Tab::Runners => self.runners.page_up(),
-            Tab::Console => {}
+            Tab::Workflows => {
+                if matches!(self.workflows.nav.current(), ViewLevel::Logs { .. }) {
+                    self.workflows.selection_page_up(shift_held);
+                    self.scroll_to_selection();
+                } else {
+                    self.workflows.page_up();
+                }
+            }
+            Tab::Runners => {
+                if matches!(self.runners.nav.current(), RunnersViewLevel::Logs { .. }) {
+                    self.runners.selection_page_up(shift_held);
+                    self.scroll_to_selection();
+                } else {
+                    self.runners.page_up();
+                }
+            }
+            Tab::Analyze => self.analyze.page_up(),
+            Tab::Sync => {}
         }
     }
 
     /// Handle Page Down key.
-    fn handle_page_down(&mut self) {
+    fn handle_page_down(&mut self, shift_held: bool) {
         match self.active_tab {
-            Tab::Workflows => self.workflows.page_down(),
-            Tab::Runners => self.runners.page_down(),
-            Tab::Console => {}
+            Tab::Workflows => {
+                if matches!(self.workflows.nav.current(), ViewLevel::Logs { .. }) {
+                    self.workflows.selection_page_down(shift_held);
+                    self.scroll_to_selection();
+                } else {
+                    self.workflows.page_down();
+                }
+            }
+            Tab::Runners => {
+                if matches!(self.runners.nav.current(), RunnersViewLevel::Logs { .. }) {
+                    self.runners.selection_page_down(shift_held);
+                    self.scroll_to_selection();
+                } else {
+                    self.runners.page_down();
+                }
+            }
+            Tab::Analyze => self.analyze.page_down(),
+            Tab::Sync => {}
         }
     }
 
     /// Handle Home key.
-    fn handle_home(&mut self) {
+    fn handle_home(&mut self, shift_held: bool) {
         match self.active_tab {
-            Tab::Workflows => self.workflows.scroll_to_start(),
-            Tab::Runners => self.runners.scroll_to_start(),
-            Tab::Console => {}
+            Tab::Workflows => {
+                if matches!(self.workflows.nav.current(), ViewLevel::Logs { .. }) {
+                    self.workflows.selection_to_start(shift_held);
+                    self.scroll_to_selection();
+                } else {
+                    self.workflows.scroll_to_start();
+                }
+            }
+            Tab::Runners => {
+                if matches!(self.runners.nav.current(), RunnersViewLevel::Logs { .. }) {
+                    self.runners.selection_to_start(shift_held);
+                    self.scroll_to_selection();
+                } else {
+                    self.runners.scroll_to_start();
+                }
+            }
+            Tab::Analyze | Tab::Sync => {}
         }
     }
 
     /// Handle End key.
-    fn handle_end(&mut self) {
+    fn handle_end(&mut self, shift_held: bool) {
         match self.active_tab {
-            Tab::Workflows => self.workflows.scroll_to_end(),
-            Tab::Runners => self.runners.scroll_to_end(),
-            Tab::Console => {}
+            Tab::Workflows => {
+                if matches!(self.workflows.nav.current(), ViewLevel::Logs { .. }) {
+                    self.workflows.selection_to_end(shift_held);
+                    self.scroll_to_selection();
+                } else {
+                    self.workflows.scroll_to_end();
+                }
+            }
+            Tab::Runners => {
+                if matches!(self.runners.nav.current(), RunnersViewLevel::Logs { .. }) {
+                    self.runners.selection_to_end(shift_held);
+                    self.scroll_to_selection();
+                } else {
+                    self.runners.scroll_to_end();
+                }
+            }
+            Tab::Analyze | Tab::Sync => {}
         }
     }
 
@@ -454,7 +724,7 @@ impl App {
         let in_logs = match self.active_tab {
             Tab::Workflows => matches!(self.workflows.nav.current(), ViewLevel::Logs { .. }),
             Tab::Runners => matches!(self.runners.nav.current(), RunnersViewLevel::Logs { .. }),
-            Tab::Console => false,
+            Tab::Analyze | Tab::Sync => false,
         };
         if in_logs {
             self.search_active = true;
@@ -486,7 +756,7 @@ impl App {
                     return;
                 }
             }
-            Tab::Console => return,
+            Tab::Analyze | Tab::Sync => return,
         };
 
         // Find all matching line numbers (0-indexed)
@@ -537,8 +807,41 @@ impl App {
                 Tab::Runners => {
                     self.runners.log_scroll_y = line as u16;
                 }
-                Tab::Console => {}
+                Tab::Analyze | Tab::Sync => {}
             }
+        }
+    }
+
+    /// Scroll log view to keep selection cursor visible.
+    fn scroll_to_selection(&mut self) {
+        // Approximate visible lines (will be refined when we have actual area height)
+        const VISIBLE_LINES: u16 = 20;
+
+        match self.active_tab {
+            Tab::Workflows => {
+                let cursor = self.workflows.log_selection_cursor as u16;
+                let scroll_y = self.workflows.log_scroll_y;
+
+                // Scroll up if cursor is above visible area
+                if cursor < scroll_y {
+                    self.workflows.log_scroll_y = cursor;
+                }
+                // Scroll down if cursor is below visible area
+                else if cursor >= scroll_y + VISIBLE_LINES {
+                    self.workflows.log_scroll_y = cursor.saturating_sub(VISIBLE_LINES - 1);
+                }
+            }
+            Tab::Runners => {
+                let cursor = self.runners.log_selection_cursor as u16;
+                let scroll_y = self.runners.log_scroll_y;
+
+                if cursor < scroll_y {
+                    self.runners.log_scroll_y = cursor;
+                } else if cursor >= scroll_y + VISIBLE_LINES {
+                    self.runners.log_scroll_y = cursor.saturating_sub(VISIBLE_LINES - 1);
+                }
+            }
+            Tab::Analyze | Tab::Sync => {}
         }
     }
 
@@ -547,7 +850,13 @@ impl App {
         let url = match self.active_tab {
             Tab::Workflows => self.get_workflows_github_url(),
             Tab::Runners => self.get_runners_github_url(),
-            Tab::Console => None,
+            Tab::Analyze => {
+                // Open GitHub URL for selected analysis session
+                self.analyze
+                    .selected_session()
+                    .map(|s| s.github_url.clone())
+            }
+            Tab::Sync => None,
         };
 
         #[allow(clippy::collapsible_if)]
@@ -558,12 +867,569 @@ impl App {
         }
     }
 
+    /// Copy selected log lines to macOS clipboard.
+    fn copy_selection(&mut self) {
+        let selected_text = match self.active_tab {
+            Tab::Workflows => {
+                if !matches!(self.workflows.nav.current(), ViewLevel::Logs { .. }) {
+                    return;
+                }
+                let logs = match &self.workflows.log_content {
+                    LoadingState::Loaded(logs) => logs,
+                    _ => return,
+                };
+                let (start, end) = self.workflows.log_selection_range();
+                logs.lines()
+                    .skip(start)
+                    .take(end - start + 1)
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            }
+            Tab::Runners => {
+                if !matches!(self.runners.nav.current(), RunnersViewLevel::Logs { .. }) {
+                    return;
+                }
+                let logs = match &self.runners.log_content {
+                    LoadingState::Loaded(logs) => logs,
+                    _ => return,
+                };
+                let (start, end) = self.runners.log_selection_range();
+                logs.lines()
+                    .skip(start)
+                    .take(end - start + 1)
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            }
+            Tab::Analyze => {
+                // Copy log excerpt from selected analysis session
+                match self.analyze.selected_session() {
+                    Some(session) => session.log_excerpt.clone(),
+                    None => return,
+                }
+            }
+            Tab::Sync => return,
+        };
+
+        // Copy to macOS clipboard using pbcopy
+        if let Ok(mut child) = std::process::Command::new("pbcopy")
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+        {
+            if let Some(stdin) = child.stdin.as_mut() {
+                use std::io::Write;
+                let _ = stdin.write_all(selected_text.as_bytes());
+            }
+            if child.wait().is_ok() {
+                // Flash clipboard indicator for 1.5 seconds
+                self.clipboard_flash_until =
+                    Some(std::time::Instant::now() + Duration::from_millis(1500));
+            }
+        }
+    }
+
+    /// Save current log selection to the Analyze tab.
+    fn save_to_analyze(&mut self) {
+        match self.active_tab {
+            Tab::Workflows => self.save_workflows_to_analyze(),
+            Tab::Runners => self.save_runners_to_analyze(),
+            Tab::Analyze | Tab::Sync => {}
+        }
+    }
+
+    /// Save from Workflows tab log viewer to Analyze.
+    fn save_workflows_to_analyze(&mut self) {
+        // Extract context from current view level
+        let (
+            owner,
+            repo,
+            workflow_id,
+            workflow_name,
+            run_id,
+            run_number,
+            job_id,
+            job_name,
+            job_status,
+            job_conclusion,
+        ) = match self.workflows.nav.current() {
+            ViewLevel::Logs {
+                owner,
+                repo,
+                workflow_id,
+                run_id,
+                job_id,
+                job_name,
+                job_status,
+                job_conclusion,
+            } => {
+                // Get run_number and workflow_name from navigation stack
+                let (run_number, workflow_name) = self.get_workflows_run_context();
+                (
+                    owner.clone(),
+                    repo.clone(),
+                    Some(*workflow_id),
+                    workflow_name,
+                    *run_id,
+                    run_number,
+                    *job_id,
+                    job_name.clone(),
+                    *job_status,
+                    *job_conclusion,
+                )
+            }
+            _ => return, // Not in log view
+        };
+
+        // Get log content
+        let logs = match &self.workflows.log_content {
+            LoadingState::Loaded(logs) => logs,
+            _ => return,
+        };
+
+        // Get selection range
+        let (sel_start, sel_end) = self.workflows.log_selection_range();
+
+        // Check for existing session that overlaps with selected lines
+        if let Some(existing) = self
+            .analyze
+            .find_overlapping(job_id, run_id, sel_start, sel_end)
+        {
+            let session_id = existing.id.clone();
+            self.sync
+                .log_info("Selection overlaps existing session - navigating");
+            self.active_tab = Tab::Analyze;
+            self.analyze.enter_detail_by_id(&session_id);
+            return;
+        }
+
+        let total_lines = logs.lines().count();
+
+        // Extract selected lines
+        let log_excerpt: String = logs
+            .lines()
+            .skip(sel_start)
+            .take(sel_end - sel_start + 1)
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        // Get run metadata
+        let run_metadata = self.get_workflows_run_metadata();
+
+        // Build navigation context
+        let nav_context = NavigationContext {
+            source_tab: SourceTab::Workflows,
+            owner: owner.clone(),
+            repo: repo.clone(),
+            workflow_id,
+            workflow_name,
+            run_id,
+            run_number,
+            job_id,
+            job_name,
+            job_status,
+            job_conclusion,
+            scroll_to_line: sel_start,
+            selection_anchor: self.workflows.log_selection_anchor,
+            selection_cursor: self.workflows.log_selection_cursor,
+        };
+
+        // Build GitHub URL
+        let github_url = format!(
+            "https://github.com/{}/{}/actions/runs/{}/job/{}",
+            owner, repo, run_id, job_id
+        );
+
+        // Create and add session
+        let session = AnalysisSession::new(
+            nav_context,
+            run_metadata,
+            github_url,
+            log_excerpt,
+            total_lines,
+            sel_start,
+            sel_end,
+        );
+
+        let session_id = session.id.clone();
+        self.analyze.add_session(session);
+        self.sync.log_info(format!(
+            "Saved {} lines to Analyze",
+            sel_end - sel_start + 1
+        ));
+
+        // Switch to Analyze tab and show detail view
+        self.active_tab = Tab::Analyze;
+        self.analyze.enter_detail_by_id(&session_id);
+    }
+
+    /// Save from Runners tab log viewer to Analyze.
+    fn save_runners_to_analyze(&mut self) {
+        // Extract context from current view level
+        let (owner, repo, run_id, job_id, job_name, job_status, job_conclusion) =
+            match self.runners.nav.current() {
+                RunnersViewLevel::Logs {
+                    owner,
+                    repo,
+                    run_id,
+                    job_id,
+                    job_name,
+                    job_status,
+                    job_conclusion,
+                } => (
+                    owner.clone(),
+                    repo.clone(),
+                    *run_id,
+                    *job_id,
+                    job_name.clone(),
+                    *job_status,
+                    *job_conclusion,
+                ),
+                _ => return, // Not in log view
+            };
+
+        // Get log content
+        let logs = match &self.runners.log_content {
+            LoadingState::Loaded(logs) => logs,
+            _ => return,
+        };
+
+        // Get selection range
+        let (sel_start, sel_end) = self.runners.log_selection_range();
+
+        // Check for existing session that overlaps with selected lines
+        if let Some(existing) = self
+            .analyze
+            .find_overlapping(job_id, run_id, sel_start, sel_end)
+        {
+            let session_id = existing.id.clone();
+            self.sync
+                .log_info("Selection overlaps existing session - navigating");
+            self.active_tab = Tab::Analyze;
+            self.analyze.enter_detail_by_id(&session_id);
+            return;
+        }
+
+        let total_lines = logs.lines().count();
+
+        // Extract selected lines
+        let log_excerpt: String = logs
+            .lines()
+            .skip(sel_start)
+            .take(sel_end - sel_start + 1)
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        // Get run metadata
+        let run_metadata = self.get_runners_run_metadata();
+
+        // Get run_number from navigation stack
+        let run_number = self.get_runners_run_number();
+
+        // Build navigation context
+        let nav_context = NavigationContext {
+            source_tab: SourceTab::Runners,
+            owner: owner.clone(),
+            repo: repo.clone(),
+            workflow_id: None,
+            workflow_name: None,
+            run_id,
+            run_number,
+            job_id,
+            job_name,
+            job_status,
+            job_conclusion,
+            scroll_to_line: sel_start,
+            selection_anchor: self.runners.log_selection_anchor,
+            selection_cursor: self.runners.log_selection_cursor,
+        };
+
+        // Build GitHub URL
+        let github_url = format!(
+            "https://github.com/{}/{}/actions/runs/{}/job/{}",
+            owner, repo, run_id, job_id
+        );
+
+        // Create and add session
+        let session = AnalysisSession::new(
+            nav_context,
+            run_metadata,
+            github_url,
+            log_excerpt,
+            total_lines,
+            sel_start,
+            sel_end,
+        );
+
+        let session_id = session.id.clone();
+        self.analyze.add_session(session);
+        self.sync.log_info(format!(
+            "Saved {} lines to Analyze",
+            sel_end - sel_start + 1
+        ));
+
+        // Switch to Analyze tab and show detail view
+        self.active_tab = Tab::Analyze;
+        self.analyze.enter_detail_by_id(&session_id);
+    }
+
+    /// Get run context (run_number, workflow_name) from Workflows nav stack.
+    fn get_workflows_run_context(&self) -> (u64, Option<String>) {
+        let breadcrumbs = self.workflows.nav.breadcrumbs();
+        let mut run_number = 0u64;
+        let mut workflow_name = None;
+
+        for node in &breadcrumbs {
+            match &node.level {
+                ViewLevel::Runs {
+                    workflow_name: wn, ..
+                } => {
+                    workflow_name = Some(wn.clone());
+                }
+                ViewLevel::Jobs { run_number: rn, .. } => {
+                    run_number = *rn;
+                }
+                _ => {}
+            }
+        }
+
+        (run_number, workflow_name)
+    }
+
+    /// Get run_number from Runners nav stack.
+    fn get_runners_run_number(&self) -> u64 {
+        let breadcrumbs = self.runners.nav.breadcrumbs();
+        for node in &breadcrumbs {
+            if let RunnersViewLevel::Jobs { run_number, .. } = &node.level {
+                return *run_number;
+            }
+        }
+        0
+    }
+
+    /// Get run metadata for Workflows tab.
+    fn get_workflows_run_metadata(&self) -> RunMetadata {
+        // Try to get from loaded runs data
+        let (pr_number, branch_name, commit_sha) = self
+            .workflows
+            .runs
+            .data
+            .data()
+            .and_then(|data| {
+                // Find matching run by checking current job's run_id
+                if let ViewLevel::Logs { run_id, .. } = self.workflows.nav.current() {
+                    data.items.iter().find(|r| r.id == *run_id).map(|run| {
+                        let pr = run.pull_requests.first().map(|pr| pr.number);
+                        let branch = run.head_branch.clone();
+                        let sha = run.head_sha[..7.min(run.head_sha.len())].to_string();
+                        (pr, branch, sha)
+                    })
+                } else {
+                    None
+                }
+            })
+            .unwrap_or((None, None, "unknown".to_string()));
+
+        // Try to get runner info from current job
+        let (runner_name, runner_labels) = self
+            .workflows
+            .jobs
+            .data
+            .data()
+            .and_then(|data| {
+                if let ViewLevel::Logs { job_id, .. } = self.workflows.nav.current() {
+                    data.items
+                        .iter()
+                        .find(|j| j.id == *job_id)
+                        .map(|job| (job.runner_name.clone(), Vec::new()))
+                } else {
+                    None
+                }
+            })
+            .unwrap_or((None, Vec::new()));
+
+        RunMetadata {
+            pr_number,
+            branch_name,
+            commit_sha,
+            author: None, // Not available in current data
+            runner_name,
+            runner_labels,
+        }
+    }
+
+    /// Get run metadata for Runners tab.
+    fn get_runners_run_metadata(&self) -> RunMetadata {
+        // Try to get from loaded runs data
+        let (pr_number, branch_name, commit_sha) = self
+            .runners
+            .runs
+            .data
+            .data()
+            .and_then(|data| {
+                // Find matching run by checking current job's run_id
+                if let RunnersViewLevel::Logs { run_id, .. } = self.runners.nav.current() {
+                    data.items.iter().find(|r| r.id == *run_id).map(|run| {
+                        let pr = run.pull_requests.first().map(|pr| pr.number);
+                        let branch = run.head_branch.clone();
+                        let sha = run.head_sha[..7.min(run.head_sha.len())].to_string();
+                        (pr, branch, sha)
+                    })
+                } else {
+                    None
+                }
+            })
+            .unwrap_or((None, None, "unknown".to_string()));
+
+        // Try to get runner info from current job
+        let (runner_name, runner_labels) = self
+            .runners
+            .jobs
+            .data
+            .data()
+            .and_then(|data| {
+                if let RunnersViewLevel::Logs { job_id, .. } = self.runners.nav.current() {
+                    data.items
+                        .iter()
+                        .find(|j| j.id == *job_id)
+                        .map(|job| (job.runner_name.clone(), Vec::new()))
+                } else {
+                    None
+                }
+            })
+            .unwrap_or((None, Vec::new()));
+
+        RunMetadata {
+            pr_number,
+            branch_name,
+            commit_sha,
+            author: None,
+            runner_name,
+            runner_labels,
+        }
+    }
+
+    /// Navigate to the source log for an analysis session.
+    async fn go_to_source(&mut self, session_id: &str) {
+        let session = match self.analyze.find_session(session_id) {
+            Some(s) => s.clone(),
+            None => return,
+        };
+
+        let ctx = &session.nav_context;
+
+        match ctx.source_tab {
+            SourceTab::Workflows => {
+                self.go_to_workflows_source(&session).await;
+            }
+            SourceTab::Runners => {
+                self.go_to_runners_source(&session).await;
+            }
+        }
+    }
+
+    /// Navigate to Workflows tab source for an analysis session.
+    async fn go_to_workflows_source(&mut self, session: &AnalysisSession) {
+        let ctx = &session.nav_context;
+
+        // Build the navigation stack
+        let workflow_id = ctx.workflow_id.unwrap_or(0);
+        let workflow_name = ctx.workflow_name.clone().unwrap_or_default();
+
+        // Reset workflows state and build nav stack
+        self.workflows.nav = NavigationStack::new(ViewLevel::Owners);
+        self.workflows.nav.push(ViewLevel::Repositories {
+            owner: ctx.owner.clone(),
+        });
+        self.workflows.nav.push(ViewLevel::Workflows {
+            owner: ctx.owner.clone(),
+            repo: ctx.repo.clone(),
+        });
+        self.workflows.nav.push(ViewLevel::Runs {
+            owner: ctx.owner.clone(),
+            repo: ctx.repo.clone(),
+            workflow_id,
+            workflow_name,
+        });
+        self.workflows.nav.push(ViewLevel::Jobs {
+            owner: ctx.owner.clone(),
+            repo: ctx.repo.clone(),
+            workflow_id,
+            run_id: ctx.run_id,
+            run_number: ctx.run_number,
+        });
+        self.workflows.nav.push(ViewLevel::Logs {
+            owner: ctx.owner.clone(),
+            repo: ctx.repo.clone(),
+            workflow_id,
+            run_id: ctx.run_id,
+            job_id: ctx.job_id,
+            job_name: ctx.job_name.clone(),
+            job_status: ctx.job_status,
+            job_conclusion: ctx.job_conclusion,
+        });
+
+        // Reset log state and restore selection from session
+        self.workflows.log_content = LoadingState::Idle;
+        self.workflows.log_selection_anchor = ctx.selection_anchor;
+        self.workflows.log_selection_cursor = ctx.selection_cursor;
+        self.workflows.log_scroll_y = ctx.scroll_to_line as u16;
+        self.workflows.log_scroll_x = 0;
+
+        // Switch tab and load logs
+        self.active_tab = Tab::Workflows;
+        self.analyze.exit_detail();
+        self.load_current_view().await;
+    }
+
+    /// Navigate to Runners tab source for an analysis session.
+    async fn go_to_runners_source(&mut self, session: &AnalysisSession) {
+        let ctx = &session.nav_context;
+
+        // Reset runners state and build nav stack
+        self.runners.nav = RunnersNavStack::default();
+        self.runners.nav.push(RunnersViewLevel::Runners {
+            owner: ctx.owner.clone(),
+            repo: ctx.repo.clone(),
+        });
+        self.runners.nav.push(RunnersViewLevel::Runs {
+            owner: ctx.owner.clone(),
+            repo: ctx.repo.clone(),
+            runner_name: session.run_metadata.runner_name.clone(),
+        });
+        self.runners.nav.push(RunnersViewLevel::Jobs {
+            owner: ctx.owner.clone(),
+            repo: ctx.repo.clone(),
+            run_id: ctx.run_id,
+            run_number: ctx.run_number,
+        });
+        self.runners.nav.push(RunnersViewLevel::Logs {
+            owner: ctx.owner.clone(),
+            repo: ctx.repo.clone(),
+            run_id: ctx.run_id,
+            job_id: ctx.job_id,
+            job_name: ctx.job_name.clone(),
+            job_status: ctx.job_status,
+            job_conclusion: ctx.job_conclusion,
+        });
+
+        // Reset log state and restore selection from session
+        self.runners.log_content = LoadingState::Idle;
+        self.runners.log_selection_anchor = ctx.selection_anchor;
+        self.runners.log_selection_cursor = ctx.selection_cursor;
+        self.runners.log_scroll_y = ctx.scroll_to_line as u16;
+        self.runners.log_scroll_x = 0;
+
+        // Switch tab and load logs
+        self.active_tab = Tab::Runners;
+        self.analyze.exit_detail();
+        self.load_current_view().await;
+    }
+
     /// Toggle favorite status for the currently selected item.
     fn toggle_favorite(&mut self) {
         match self.active_tab {
             Tab::Workflows => self.toggle_workflows_favorite(),
             Tab::Runners => self.toggle_runners_favorite(),
-            Tab::Console => {}
+            Tab::Analyze | Tab::Sync => {}
         }
     }
 
@@ -718,18 +1584,18 @@ impl App {
                 let owner = owner.clone();
                 let repo = repo.clone();
                 sorted.sort_by(|a, b| {
-                    let a_key = format!("{}/{}/{}", owner, repo, a.name);
-                    let b_key = format!("{}/{}/{}", owner, repo, b.name);
+                    let a_key = format!("{}/{}/{}", owner, repo, a.runner.name);
+                    let b_key = format!("{}/{}/{}", owner, repo, b.runner.name);
                     let a_fav = self.favorite_runners.contains(&a_key);
                     let b_fav = self.favorite_runners.contains(&b_key);
                     match (a_fav, b_fav) {
                         (true, false) => std::cmp::Ordering::Less,
                         (false, true) => std::cmp::Ordering::Greater,
-                        _ => a.name.cmp(&b.name),
+                        _ => a.runner.name.cmp(&b.runner.name),
                     }
                 });
-                if let Some(runner) = sorted.get(index) {
-                    let key = format!("{}/{}/{}", owner, repo, runner.name);
+                if let Some(enriched) = sorted.get(index) {
+                    let key = format!("{}/{}/{}", owner, repo, enriched.runner.name);
                     if self.favorite_runners.contains(&key) {
                         self.favorite_runners.remove(&key);
                     } else {
@@ -821,12 +1687,22 @@ impl App {
                 repo,
                 run_id,
                 ..
-            } => self.workflows.jobs.selected_item().map(|job| {
-                format!(
-                    "https://github.com/{}/{}/actions/runs/{}/job/{}",
-                    owner, repo, run_id, job.id
-                )
-            }),
+            } => {
+                // Use flattened list to get the selected job (main or sub-item)
+                if let Some(index) = self.workflows.jobs.selected() {
+                    if let Some(list_item) = self.workflows.job_list_items.get(index) {
+                        let job = list_item.get_job(&self.workflows.job_groups);
+                        Some(format!(
+                            "https://github.com/{}/{}/actions/runs/{}/job/{}",
+                            owner, repo, run_id, job.id
+                        ))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
             ViewLevel::Logs {
                 owner,
                 repo,
@@ -903,7 +1779,20 @@ impl App {
         match self.active_tab {
             Tab::Workflows => self.handle_workflows_enter().await,
             Tab::Runners => self.handle_runners_enter().await,
-            Tab::Console => {}
+            Tab::Analyze => {
+                match &self.analyze.view {
+                    AnalyzeViewLevel::List => {
+                        // Enter detail view for selected session
+                        self.analyze.enter_detail();
+                    }
+                    AnalyzeViewLevel::Detail { session_id } => {
+                        // Go to source log from detail view
+                        let session_id = session_id.clone();
+                        self.go_to_source(&session_id).await;
+                    }
+                }
+            }
+            Tab::Sync => {}
         }
     }
 
@@ -1017,31 +1906,57 @@ impl App {
                 workflow_id,
                 run_id,
                 ..
-            } => self
-                .workflows
-                .jobs
-                .selected_item()
-                .map(|job| ViewLevel::Logs {
-                    owner,
-                    repo,
-                    workflow_id,
-                    run_id,
-                    job_id: job.id,
-                    job_name: job.name.clone(),
-                    job_status: job.status,
-                    job_conclusion: job.conclusion,
-                }),
+            } => {
+                // Use flattened list to get the selected job (main or sub-item)
+                if let Some(index) = self.workflows.jobs.selected() {
+                    if let Some(list_item) = self.workflows.job_list_items.get(index) {
+                        let job = list_item.get_job(&self.workflows.job_groups);
+                        Some(ViewLevel::Logs {
+                            owner,
+                            repo,
+                            workflow_id,
+                            run_id,
+                            job_id: job.id,
+                            job_name: job.name.clone(),
+                            job_status: job.status,
+                            job_conclusion: job.conclusion,
+                        })
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
             ViewLevel::Logs { .. } => None, // Can't drill down further
         };
 
         if let Some(level) = next_level {
+            // Check if entering logs and restore saved state
+            let job_id_to_restore = if let ViewLevel::Logs { job_id, .. } = &level {
+                Some(*job_id)
+            } else {
+                None
+            };
+
             self.workflows.nav.push(level);
+
+            if let Some(job_id) = job_id_to_restore {
+                self.restore_log_state(job_id);
+            }
+
             self.load_current_view().await;
         }
     }
 
     /// Handle Enter in Runners tab.
     async fn handle_runners_enter(&mut self) {
+        // Clear auto-refresh timer when navigating away from runners list
+        if !matches!(self.runners.nav.current(), RunnersViewLevel::Runners { .. }) {
+            self.runners.runners_view_entered_at = None;
+            self.runners.runners_next_refresh = None;
+        }
+
         // Note: For views with favorites, we must sort to match the displayed order
         let next_level = match self.runners.nav.current().clone() {
             RunnersViewLevel::Repositories => {
@@ -1086,20 +2001,20 @@ impl App {
                 let owner = owner.clone();
                 let repo = repo.clone();
                 sorted.sort_by(|a, b| {
-                    let a_key = format!("{}/{}/{}", owner, repo, a.name);
-                    let b_key = format!("{}/{}/{}", owner, repo, b.name);
+                    let a_key = format!("{}/{}/{}", owner, repo, a.runner.name);
+                    let b_key = format!("{}/{}/{}", owner, repo, b.runner.name);
                     let a_fav = self.favorite_runners.contains(&a_key);
                     let b_fav = self.favorite_runners.contains(&b_key);
                     match (a_fav, b_fav) {
                         (true, false) => std::cmp::Ordering::Less,
                         (false, true) => std::cmp::Ordering::Greater,
-                        _ => a.name.cmp(&b.name),
+                        _ => a.runner.name.cmp(&b.runner.name),
                     }
                 });
-                sorted.get(index).map(|runner| RunnersViewLevel::Runs {
+                sorted.get(index).map(|enriched| RunnersViewLevel::Runs {
                     owner,
                     repo,
-                    runner_name: Some(runner.name.clone()),
+                    runner_name: Some(enriched.runner.name.clone()),
                 })
             }
             RunnersViewLevel::Runs { owner, repo, .. } => {
@@ -1118,30 +2033,53 @@ impl App {
                 repo,
                 run_id,
                 ..
-            } => self
-                .runners
-                .jobs
-                .selected_item()
-                .map(|job| RunnersViewLevel::Logs {
-                    owner,
-                    repo,
-                    run_id,
-                    job_id: job.id,
-                    job_name: job.name.clone(),
-                    job_status: job.status,
-                    job_conclusion: job.conclusion,
-                }),
+            } => {
+                // Use flattened list to get the selected job (main or sub-item)
+                if let Some(index) = self.runners.jobs.selected() {
+                    if let Some(list_item) = self.runners.job_list_items.get(index) {
+                        let job = list_item.get_job(&self.runners.job_groups);
+                        Some(RunnersViewLevel::Logs {
+                            owner,
+                            repo,
+                            run_id,
+                            job_id: job.id,
+                            job_name: job.name.clone(),
+                            job_status: job.status,
+                            job_conclusion: job.conclusion,
+                        })
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
             RunnersViewLevel::Logs { .. } => None,
         };
 
         if let Some(level) = next_level {
+            // Check if entering logs and restore saved state
+            let job_id_to_restore = if let RunnersViewLevel::Logs { job_id, .. } = &level {
+                Some(*job_id)
+            } else {
+                None
+            };
+
             self.runners.nav.push(level);
+
+            if let Some(job_id) = job_id_to_restore {
+                self.restore_log_state(job_id);
+            }
+
             self.load_runners_view().await;
         }
     }
 
     /// Handle Escape key (go back).
     async fn handle_escape(&mut self) {
+        // Save log state before navigating away
+        self.save_current_log_state();
+
         match self.active_tab {
             Tab::Workflows => {
                 if self.workflows.go_back() {
@@ -1150,10 +2088,19 @@ impl App {
             }
             Tab::Runners => {
                 if self.runners.go_back() {
+                    // Clear timer if we left the runners list view
+                    if !matches!(self.runners.nav.current(), RunnersViewLevel::Runners { .. }) {
+                        self.runners.runners_view_entered_at = None;
+                        self.runners.runners_next_refresh = None;
+                    }
                     self.load_runners_view().await;
                 }
             }
-            Tab::Console => {}
+            Tab::Analyze => {
+                // Exit detail view back to list
+                self.analyze.exit_detail();
+            }
+            Tab::Sync => {}
         }
     }
 
@@ -1168,16 +2115,32 @@ impl App {
                 self.runners.clear_current();
                 self.load_runners_view().await;
             }
-            Tab::Console => {}
+            Tab::Analyze | Tab::Sync => {}
         }
     }
 
     /// Called when switching tabs.
     async fn on_tab_change(&mut self) {
+        // Clear runners auto-refresh timer when leaving Runners tab
+        if self.active_tab != Tab::Runners {
+            self.runners.runners_view_entered_at = None;
+            self.runners.runners_next_refresh = None;
+        }
+
         match self.active_tab {
             Tab::Workflows => self.load_current_view().await,
             Tab::Runners => self.load_runners_view().await,
-            Tab::Console => {}
+            Tab::Analyze | Tab::Sync => {}
+        }
+    }
+
+    /// Toggle sync enabled state.
+    fn toggle_sync(&mut self) {
+        let enabled = self.sync.toggle();
+        if enabled {
+            self.sync.log_info("Sync enabled");
+        } else {
+            self.sync.log_info("Sync disabled");
         }
     }
 
@@ -1323,11 +2286,12 @@ impl App {
                 }
                 // No valid cache, fetch from API
                 self.workflows.runs.set_loading();
+                let branch = self.workflows.current_branch.as_deref();
                 let result = self
                     .github_client
                     .as_mut()
                     .unwrap()
-                    .get_workflow_runs_for_workflow(&owner, &repo, workflow_id, 1, 30)
+                    .get_workflow_runs_for_workflow(&owner, &repo, workflow_id, 1, 30, branch)
                     .await;
                 match result {
                     Ok((runs, count)) => {
@@ -1359,7 +2323,12 @@ impl App {
                     if let Ok(Some(cached)) = cache::read_cached::<Vec<crate::github::Job>>(&path) {
                         if cached.is_valid(cache::DEFAULT_TTL) {
                             let count = cached.data.len() as u64;
-                            self.workflows.jobs.set_loaded(cached.data, count);
+                            self.workflows.jobs.set_loaded(cached.data.clone(), count);
+                            // Group jobs by name and create flattened list
+                            self.workflows.job_groups =
+                                crate::github::JobGroup::group_by_name(cached.data);
+                            self.workflows.job_list_items =
+                                crate::github::JobListItem::flatten(&self.workflows.job_groups);
                             return;
                         }
                     }
@@ -1379,7 +2348,11 @@ impl App {
                         {
                             let _ = cache::write_cached(&path, &jobs, false);
                         }
-                        self.workflows.jobs.set_loaded(jobs, count);
+                        self.workflows.jobs.set_loaded(jobs.clone(), count);
+                        // Group jobs by name and create flattened list
+                        self.workflows.job_groups = crate::github::JobGroup::group_by_name(jobs);
+                        self.workflows.job_list_items =
+                            crate::github::JobListItem::flatten(&self.workflows.job_groups);
                     }
                     Err(e) => {
                         self.workflows.jobs.set_error(e.to_string());
@@ -1522,6 +2495,14 @@ impl App {
                 ref owner,
                 ref repo,
             } => {
+                // Start timer when entering runners view
+                if self.runners.runners_view_entered_at.is_none() {
+                    let now = std::time::Instant::now();
+                    self.runners.runners_view_entered_at = Some(now);
+                    self.runners.runners_next_refresh =
+                        Some(now + std::time::Duration::from_secs(60));
+                }
+
                 if !self.runners.runners.data.is_loaded() {
                     self.runners.runners.set_loading();
                     let owner = owner.clone();
@@ -1530,7 +2511,7 @@ impl App {
                         .github_client
                         .as_mut()
                         .unwrap()
-                        .get_runners(&owner, &repo, 1, 30)
+                        .get_enriched_runners(&owner, &repo, 1, 30)
                         .await;
                     match result {
                         Ok((runners, count)) => {
@@ -1560,7 +2541,9 @@ impl App {
                         .get_workflow_runs(&owner, &repo, 1, 30)
                         .await;
                     match result {
-                        Ok((runs, count)) => {
+                        Ok((mut runs, count)) => {
+                            // Sort by updated_at in descending order (newest first)
+                            runs.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
                             self.runners.runs.set_loaded(runs, count);
                         }
                         Err(e) => {
@@ -1588,7 +2571,11 @@ impl App {
                         .await;
                     match result {
                         Ok((jobs, count)) => {
-                            self.runners.jobs.set_loaded(jobs, count);
+                            self.runners.jobs.set_loaded(jobs.clone(), count);
+                            // Group jobs by name and create flattened list
+                            self.runners.job_groups = crate::github::JobGroup::group_by_name(jobs);
+                            self.runners.job_list_items =
+                                crate::github::JobListItem::flatten(&self.runners.job_groups);
                         }
                         Err(e) => {
                             self.runners.jobs.set_error(e.to_string());
@@ -1627,64 +2614,71 @@ impl App {
         }
     }
 
-    /// Log an error to the console tab.
-    fn log_error(&mut self, message: impl Into<String>) {
-        self.console_messages.push(ConsoleMessage::error(message));
-        self.console_unread += 1;
+    /// Open branch selection modal.
+    fn handle_branch_modal_open(&mut self) {
+        // Only open modal in Workflows tab when viewing workflows
+        if self.active_tab == Tab::Workflows {
+            if matches!(self.workflows.nav.current(), ViewLevel::Workflows { .. }) {
+                self.workflows.branch_modal_visible = true;
+                self.workflows.branch_input.clear();
+                self.workflows.branch_history_selection = 0;
+            }
+        }
     }
 
-    /// Log a warning to the console tab.
+    /// Handle branch switch from modal.
+    async fn handle_branch_switch(&mut self) {
+        // Determine branch to switch to
+        let branch = if self.workflows.branch_input.is_empty() {
+            // Use selection from history
+            if !self.workflows.branch_history.is_empty() {
+                self.workflows.branch_history[self.workflows.branch_history_selection].clone()
+            } else {
+                return; // Nothing to switch to
+            }
+        } else {
+            // Use typed input
+            self.workflows.branch_input.clone()
+        };
+
+        // Close modal
+        self.workflows.branch_modal_visible = false;
+        self.workflows.branch_input.clear();
+
+        // Update current branch
+        self.workflows.current_branch = Some(branch.clone());
+
+        // Add to history if not already present
+        if !self.workflows.branch_history.contains(&branch) {
+            self.workflows.branch_history.insert(0, branch.clone());
+            // Keep history to max 10 items
+            if self.workflows.branch_history.len() > 10 {
+                self.workflows.branch_history.truncate(10);
+            }
+        }
+
+        // Clear workflows and runs lists to force reload with new branch
+        self.workflows.workflows = crate::state::workflows::SelectableList::new();
+        self.workflows.runs = crate::state::workflows::SelectableList::new();
+
+        // Reload workflows for the new branch
+        self.load_current_view().await;
+    }
+
+    /// Log an error to the sync activity log.
+    fn log_error(&mut self, message: impl Into<String>) {
+        self.sync.log_error(message);
+    }
+
+    /// Log a warning to the sync activity log.
     #[allow(dead_code)]
     fn log_warn(&mut self, message: impl Into<String>) {
-        self.console_messages.push(ConsoleMessage::warn(message));
+        self.sync.log_warn(message);
     }
 
-    /// Log info to the console tab.
+    /// Log info to the sync activity log.
     #[allow(dead_code)]
     fn log_info(&mut self, message: impl Into<String>) {
-        self.console_messages.push(ConsoleMessage::info(message));
-    }
-
-    /// Select previous item in console list.
-    fn console_select_prev(&mut self) {
-        if self.console_messages.is_empty() {
-            return;
-        }
-        let i = match self.console_list_state.selected() {
-            Some(i) => {
-                if i == 0 {
-                    0
-                } else {
-                    i - 1
-                }
-            }
-            None => self.console_messages.len().saturating_sub(1),
-        };
-        self.console_list_state.select(Some(i));
-    }
-
-    /// Select next item in console list.
-    fn console_select_next(&mut self) {
-        if self.console_messages.is_empty() {
-            return;
-        }
-        let i = match self.console_list_state.selected() {
-            Some(i) => {
-                if i >= self.console_messages.len() - 1 {
-                    self.console_messages.len() - 1
-                } else {
-                    i + 1
-                }
-            }
-            None => self.console_messages.len().saturating_sub(1),
-        };
-        self.console_list_state.select(Some(i));
-    }
-
-    /// Clear console badge when viewing console tab.
-    fn clear_console_badge_if_viewing(&mut self) {
-        if self.active_tab == Tab::Console {
-            self.console_unread = 0;
-        }
+        self.sync.log_info(message);
     }
 }

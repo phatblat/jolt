@@ -31,3 +31,6 @@ Temporary Items
 *.swp
 *.swo
 *~
+
+# Auto Claude data directory
+.auto-claude/

@@ -7,8 +7,8 @@ use chrono::{DateTime, Utc};
 use ratatui::{prelude::*, widgets::*};
 
 use crate::github::{
-    Job, Owner, OwnerType, Repository, RunConclusion, RunStatus, Runner, RunnerStatus, Workflow,
-    WorkflowRun,
+    EnrichedRunner, Job, JobGroup, JobListItem, Owner, OwnerType, Repository, RunConclusion,
+    RunStatus, RunnerStatus, Workflow, WorkflowRun,
 };
 use crate::state::{LoadingState, SelectableList};
 
@@ -23,6 +23,8 @@ pub fn format_relative_time(dt: &DateTime<Utc>) -> String {
         format!("{}h ago", duration.num_hours())
     } else if duration.num_minutes() > 0 {
         format!("{}m ago", duration.num_minutes())
+    } else if duration.num_seconds() > 0 {
+        format!("{}s ago", duration.num_seconds())
     } else {
         "just now".to_string()
     }
@@ -342,7 +344,12 @@ pub fn render_workflows_list(
 }
 
 /// Render workflow runs list.
-pub fn render_runs_list(frame: &mut Frame, list: &mut SelectableList<WorkflowRun>, area: Rect) {
+pub fn render_runs_list(
+    frame: &mut Frame,
+    list: &mut SelectableList<WorkflowRun>,
+    area: Rect,
+    title: &str,
+) {
     match &list.data {
         LoadingState::Idle => render_empty(frame, area, "Press Enter to load"),
         LoadingState::Loading => render_loading(frame, area, "Loading workflow runs"),
@@ -409,7 +416,7 @@ pub fn render_runs_list(frame: &mut Frame, list: &mut SelectableList<WorkflowRun
                     .block(
                         Block::default()
                             .borders(Borders::ALL)
-                            .title(" Workflow Runs "),
+                            .title(format!(" {} ", title)),
                     )
                     .highlight_style(
                         Style::default()
@@ -424,8 +431,14 @@ pub fn render_runs_list(frame: &mut Frame, list: &mut SelectableList<WorkflowRun
     }
 }
 
-/// Render jobs list.
-pub fn render_jobs_list(frame: &mut Frame, list: &mut SelectableList<Job>, area: Rect) {
+/// Render jobs list with hierarchical attempts.
+pub fn render_jobs_list(
+    frame: &mut Frame,
+    list: &mut SelectableList<Job>,
+    job_groups: &[JobGroup],
+    job_list_items: &[JobListItem],
+    area: Rect,
+) {
     match &list.data {
         LoadingState::Idle => render_empty(frame, area, "Press Enter to load"),
         LoadingState::Loading => render_loading(frame, area, "Loading jobs"),
@@ -433,11 +446,15 @@ pub fn render_jobs_list(frame: &mut Frame, list: &mut SelectableList<Job>, area:
         LoadingState::Loaded(data) => {
             if data.is_empty() {
                 render_empty(frame, area, "No jobs in this run");
+            } else if job_groups.is_empty() {
+                // Fallback: no grouping available yet
+                render_empty(frame, area, "Loading job attempts...");
             } else {
-                let items: Vec<ListItem> = data
-                    .items
+                let items: Vec<ListItem> = job_list_items
                     .iter()
-                    .map(|job| {
+                    .map(|list_item| {
+                        let job = list_item.get_job(job_groups);
+                        let is_sub_item = matches!(list_item, JobListItem::SubItem { .. });
                         let status_icon = match job.conclusion {
                             Some(RunConclusion::Success) => "✅",
                             Some(RunConclusion::Failure) => "❌",
@@ -473,7 +490,11 @@ pub fn render_jobs_list(frame: &mut Frame, list: &mut SelectableList<Job>, area:
                             }
                         };
 
+                        // Add indentation for sub-items
+                        let indent = if is_sub_item { "    " } else { "" };
+
                         let mut first_line = vec![
+                            Span::raw(indent),
                             Span::raw(format!("{} ", status_icon)),
                             Span::styled(&job.name, Style::default().fg(color)),
                             Span::styled(
@@ -483,7 +504,8 @@ pub fn render_jobs_list(frame: &mut Frame, list: &mut SelectableList<Job>, area:
                         ];
 
                         // For in-progress jobs, show additional info on separate lines
-                        if is_in_progress {
+                        // But not for sub-items (previous attempts)
+                        if is_in_progress && !is_sub_item {
                             let mut lines = vec![Line::from(first_line)];
 
                             // Show runner name on its own line
@@ -542,7 +564,7 @@ pub fn render_jobs_list(frame: &mut Frame, list: &mut SelectableList<Job>, area:
 /// Render runners list.
 pub fn render_runners_list(
     frame: &mut Frame,
-    list: &mut SelectableList<Runner>,
+    list: &mut SelectableList<EnrichedRunner>,
     favorites: &HashSet<String>,
     owner: &str,
     repo: &str,
@@ -559,31 +581,35 @@ pub fn render_runners_list(
                 // Sort: favorites first, then by name
                 let mut sorted: Vec<_> = data.items.iter().collect();
                 sorted.sort_by(|a, b| {
-                    let a_key = format!("{}/{}/{}", owner, repo, a.name);
-                    let b_key = format!("{}/{}/{}", owner, repo, b.name);
+                    let a_key = format!("{}/{}/{}", owner, repo, a.runner.name);
+                    let b_key = format!("{}/{}/{}", owner, repo, b.runner.name);
                     let a_fav = favorites.contains(&a_key);
                     let b_fav = favorites.contains(&b_key);
                     match (a_fav, b_fav) {
                         (true, false) => std::cmp::Ordering::Less,
                         (false, true) => std::cmp::Ordering::Greater,
-                        _ => a.name.cmp(&b.name),
+                        _ => a.runner.name.cmp(&b.runner.name),
                     }
                 });
 
                 let items: Vec<ListItem> = sorted
                     .iter()
-                    .map(|runner| {
+                    .map(|enriched| {
+                        let runner = &enriched.runner;
                         let key = format!("{}/{}/{}", owner, repo, runner.name);
                         let is_fav = favorites.contains(&key);
                         let star = if is_fav { "⭐ " } else { "" };
 
-                        let (status_icon, status_color) = match runner.status {
-                            RunnerStatus::Online => ("🟢", Color::Green),
-                            RunnerStatus::Offline => ("⚫", Color::DarkGray),
-                            RunnerStatus::Unknown => ("❓", Color::Gray),
+                        let (status_icon, status_color) = if runner.busy {
+                            // Active runners get yellow icon
+                            ("🟡", Color::Yellow)
+                        } else {
+                            match runner.status {
+                                RunnerStatus::Online => ("🟢", Color::Green),
+                                RunnerStatus::Offline => ("⚫", Color::DarkGray),
+                                RunnerStatus::Unknown => ("❓", Color::Gray),
+                            }
                         };
-
-                        let busy_indicator = if runner.busy { " (busy)" } else { "" };
 
                         let labels: Vec<&str> = runner
                             .labels
@@ -597,21 +623,63 @@ pub fn render_runners_list(
                             format!("  [{}]", labels.join(", "))
                         };
 
+                        // Build busy indicator with job details if available
+                        let busy_info = if runner.busy {
+                            if let Some(job_info) = &enriched.current_job {
+                                let mut parts = Vec::new();
+
+                                // PR number
+                                if let Some(pr) = job_info.pr_number {
+                                    parts.push(format!("PR #{}", pr));
+                                }
+
+                                // Branch name (truncate if too long)
+                                if let Some(branch) = &job_info.branch {
+                                    let branch_display = if branch.len() > 30 {
+                                        format!("{}...", &branch[..27])
+                                    } else {
+                                        branch.clone()
+                                    };
+                                    parts.push(branch_display);
+                                }
+
+                                // Time since trigger
+                                if let Some(started_at) = job_info.started_at {
+                                    let time_str = format_relative_time(&started_at);
+                                    parts.push(time_str);
+                                }
+
+                                if parts.is_empty() {
+                                    "  active".to_string()
+                                } else {
+                                    format!("  {}", parts.join(" • "))
+                                }
+                            } else {
+                                "  active".to_string()
+                            }
+                        } else {
+                            String::new()
+                        };
+
                         ListItem::new(Line::from(vec![
                             Span::raw(format!("{}{} ", star, status_icon)),
                             Span::styled(&runner.name, Style::default().fg(status_color)),
-                            Span::styled(busy_indicator, Style::default().fg(Color::Yellow)),
                             Span::styled(
                                 format!("  {}", runner.os),
                                 Style::default().fg(Color::Cyan),
                             ),
                             Span::styled(labels_str, Style::default().fg(Color::DarkGray)),
+                            Span::styled(busy_info, Style::default().fg(Color::Yellow)),
                         ]))
                     })
                     .collect();
 
                 let list_widget = List::new(items)
-                    .block(Block::default().borders(Borders::ALL).title(" Runners "))
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title(" Self-Hosted Runners "),
+                    )
                     .highlight_style(
                         Style::default()
                             .bg(Color::DarkGray)
