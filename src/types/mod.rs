@@ -216,3 +216,74 @@ pub struct LogLine {
     pub level: Option<String>,
     pub message: String,
 }
+
+// ========================================
+// Type Conversions: GitHub → Unified
+// ========================================
+
+impl Runner {
+    /// Create a unified Runner from a GitHub EnrichedRunner.
+    pub fn from_github_enriched(
+        enriched: &crate::github::EnrichedRunner,
+        owner: &str,
+        repo: &str,
+    ) -> Self {
+        let runner = &enriched.runner;
+
+        // Determine status: busy takes precedence
+        let status = if runner.busy {
+            RunnerStatus::Busy
+        } else {
+            match runner.status {
+                crate::github::RunnerStatus::Online => RunnerStatus::Online,
+                crate::github::RunnerStatus::Offline => RunnerStatus::Offline,
+                crate::github::RunnerStatus::Unknown => RunnerStatus::Offline,
+            }
+        };
+
+        // Build current job description if busy
+        let current_job = if runner.busy {
+            enriched.current_job.as_ref().map(|job| {
+                let mut parts = Vec::new();
+                if let Some(pr) = job.pr_number {
+                    parts.push(format!("PR #{}", pr));
+                }
+                if let Some(branch) = &job.branch {
+                    let branch_display = if branch.len() > 20 {
+                        format!("{}...", &branch[..17])
+                    } else {
+                        branch.clone()
+                    };
+                    parts.push(branch_display);
+                }
+                if parts.is_empty() {
+                    "Running".to_string()
+                } else {
+                    parts.join(" ")
+                }
+            })
+        } else {
+            None
+        };
+
+        // Extract label names
+        let labels = if runner.labels.is_empty() {
+            None
+        } else {
+            Some(runner.labels.iter().map(|l| l.name.clone()).collect())
+        };
+
+        Runner {
+            id: runner.id.to_string(),
+            name: runner.name.clone(),
+            platform: Platform::GitHub,
+            status,
+            scope: RunnerScope::Repository {
+                org: owner.to_string(),
+                repo: repo.to_string(),
+            },
+            current_job,
+            labels,
+        }
+    }
+}

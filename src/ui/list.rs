@@ -11,6 +11,8 @@ use crate::github::{
     RunStatus, RunnerStatus, Workflow, WorkflowRun,
 };
 use crate::state::{LoadingState, SelectableList};
+use crate::types::Platform;
+use crate::ui::platform_badge;
 
 /// Format a timestamp as relative time (e.g., "2h ago").
 pub fn format_relative_time(dt: &DateTime<Utc>) -> String {
@@ -121,7 +123,10 @@ pub fn render_owners_list(
                             OwnerType::Bot => "🤖",
                             OwnerType::Unknown => "❓",
                         };
-                        ListItem::new(format!("{}{} {}", star, type_indicator, owner.login))
+                        ListItem::new(Line::from(vec![
+                            platform_badge::render_badge(Platform::GitHub),
+                            Span::raw(format!(" {}{} {}", star, type_indicator, owner.login)),
+                        ]))
                     })
                     .collect();
 
@@ -179,6 +184,8 @@ pub fn render_repositories_list(
                         let visibility = if repo.private { "🔒" } else { "🌐" };
                         let updated = format_relative_time(&repo.updated_at);
                         ListItem::new(Line::from(vec![
+                            platform_badge::render_badge(Platform::GitHub),
+                            Span::raw(" "),
                             Span::raw(format!("{star}{visibility} ")),
                             Span::styled(&repo.name, Style::default().fg(Color::Cyan)),
                             Span::styled(
@@ -246,6 +253,8 @@ pub fn render_runner_repositories_list(
                         let visibility = if repo.private { "🔒" } else { "🌐" };
                         let updated = format_relative_time(&repo.updated_at);
                         ListItem::new(Line::from(vec![
+                            platform_badge::render_badge(Platform::GitHub),
+                            Span::raw(" "),
                             Span::raw(format!("{star}{visibility} ")),
                             Span::styled(
                                 format!("{}/{}", repo.owner.login, repo.name),
@@ -318,6 +327,8 @@ pub fn render_workflows_list(
                         // Extract just the filename from path (e.g., "ci.yml" from ".github/workflows/ci.yml")
                         let filename = workflow.path.rsplit('/').next().unwrap_or(&workflow.path);
                         ListItem::new(Line::from(vec![
+                            platform_badge::render_badge(Platform::GitHub),
+                            Span::raw(" "),
                             Span::raw(star),
                             Span::styled(&workflow.name, Style::default().fg(Color::Cyan)),
                             Span::styled(
@@ -378,6 +389,8 @@ pub fn render_runs_list(
                         let time = format_relative_time(&run.created_at);
 
                         let mut spans = vec![
+                            platform_badge::render_badge(Platform::GitHub),
+                            Span::raw(" "),
                             Span::raw(format!("{status_icon} ")),
                             Span::styled(
                                 format!("#{}", run.run_number),
@@ -491,6 +504,8 @@ pub fn render_jobs_list(
                         let indent = if is_sub_item { "    " } else { "" };
 
                         let mut first_line = vec![
+                            platform_badge::render_badge(Platform::GitHub),
+                            Span::raw(" "),
                             Span::raw(indent),
                             Span::raw(format!("{status_icon} ")),
                             Span::styled(&job.name, Style::default().fg(color)),
@@ -657,7 +672,10 @@ pub fn render_runners_list(
                             String::new()
                         };
 
+                        // Add platform badge at the start of each runner line
                         ListItem::new(Line::from(vec![
+                            platform_badge::render_badge(Platform::GitHub),
+                            Span::raw(" "),
                             Span::raw(format!("{star}{status_icon} ")),
                             Span::styled(&runner.name, Style::default().fg(status_color)),
                             Span::styled(

@@ -22,6 +22,24 @@
   - `draw_runners_breadcrumb_with_platform()` - Platform badges for runners
   - Backward compatible with existing code
 
+### Type Conversions (`src/types/mod.rs`)
+- `Runner::from_github_enriched()` - Convert GitHub EnrichedRunner to unified Runner
+  - Maps runner status (Online, Offline, Busy)
+  - Extracts current job info (PR number, branch, start time)
+  - Handles label extraction
+  - Sets appropriate RunnerScope
+
+### Platform Badges in All Lists (`src/ui/list.rs`)
+- All list render functions now display `[GH]` platform badge at start of each item:
+  - `render_owners_list()` - Owners with platform badge
+  - `render_repositories_list()` - Repositories (Workflows tab) with badge
+  - `render_runner_repositories_list()` - Repositories (Runners tab) with badge
+  - `render_workflows_list()` - Workflows with badge
+  - `render_runs_list()` - Workflow runs with badge
+  - `render_jobs_list()` - Jobs with badge
+  - `render_runners_list()` - Runners with badge
+- Badges currently hardcoded to GitHub (will become dynamic with unified types)
+
 ### Testing
 - All 21 tests passing
 - Clippy clean with `-D warnings`
@@ -29,16 +47,10 @@
 
 ## Remaining Work 🚧
 
-### Data Integration (Major Refactoring Required)
+### Data Integration (Refactoring Required)
 
-#### 1. Convert UI Components to Unified Types
-Currently all UI components use GitHub-specific types. Need to:
-- **Update `src/ui/list.rs`**:
-  - Convert from `crate::github::*` to `crate::types::*`
-  - `EnrichedRunner` → `Runner` (unified)
-  - `WorkflowRun` → `Execution` (unified)
-  - `Job` → `Job` (unified)
-  - Update all render functions to accept unified types
+#### 1. Convert State Types to Unified Types
+Currently state modules use GitHub-specific types. Need to:
 
 - **Update `src/state/workflows.rs`**:
   - Change `SelectableList<Owner>` → `SelectableList<Organization>`
@@ -72,17 +84,18 @@ for platform in self.platform_manager.platforms_mut() {
 all_runners.sort_by(|a, b| a.name.cmp(&b.name));
 ```
 
-#### 3. Display Platform Badges in Lists
-Once unified types are used, add platform badges to all list items:
+#### 3. Make Platform Badges Dynamic
+Platform badges are already rendered in all lists, but currently hardcoded to GitHub.
+Once unified types are used, change from:
 
 ```rust
-// In render function:
-let badge = platform_badge::render_badge(item.platform);
-Line::from(vec![
-    badge,
-    Span::raw(" "),
-    Span::styled(&item.name, style),
-])
+platform_badge::render_badge(Platform::GitHub)
+```
+
+To dynamic based on item platform:
+
+```rust
+platform_badge::render_badge(item.platform)
 ```
 
 #### 4. Handle Platform-Specific Behavior
@@ -109,17 +122,18 @@ Adding the 7th level (Steps between Jobs and Logs) was started but reverted due 
 ### Recommended Approach: Incremental Migration
 
 **Phase 4a: Runners Tab Only** (Smaller Scope)
-1. Convert Runners tab state to use unified types
-2. Update `load_runners_view()` to query multiple platforms
-3. Add platform badges to runner lists
-4. Test with both GitHub and Harness
-5. **Milestone**: Runners tab shows mixed GitHub + Harness runners
+1. ✅ Add `Runner::from_github_enriched()` type conversion
+2. ✅ Add platform badges to runner lists (all list renders)
+3. Convert Runners tab state to use unified types
+4. Update `load_runners_view()` to query multiple platforms
+5. Test with both GitHub and Harness
+6. **Milestone**: Runners tab shows mixed GitHub + Harness runners
 
 **Phase 4b: Workflows Tab** (After 4a works)
-1. Convert Workflows tab state to use unified types
-2. Update `load_current_view()` for multi-platform
-3. Handle organization/project navigation
-4. Add platform badges throughout
+1. ✅ Platform badges already added to all workflow lists
+2. Convert Workflows tab state to use unified types
+3. Update `load_current_view()` for multi-platform
+4. Handle organization/project navigation
 5. **Milestone**: Workflows tab shows unified navigation
 
 **Phase 4c: Polish** (Final touches)
@@ -175,8 +189,11 @@ For each increment:
 ## Current State
 
 **Infrastructure**: Complete and committed ✅
-**Data Integration**: Not started 🚧
-**Next Step**: Begin Phase 4a by converting Runners tab to unified types
+**Type Conversions**: Runner conversion done ✅
+**Platform Badges in UI**: All lists have badges (hardcoded to GitHub) ✅
+**State Type Migration**: Not started 🚧
+**Multi-Platform Fetching**: Not started 🚧
+**Next Step**: Convert state types (SelectableList<Owner> → SelectableList<Organization>, etc.)
 
 ## Files That Need Changes
 
