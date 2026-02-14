@@ -1,32 +1,71 @@
 # Harness API Research
 
 Research findings for integrating Harness CI/CD into jolt.
+Verified against official Harness documentation (February 2026).
+
+## API Generations
+
+Harness has two API generations with different conventions:
+
+| Aspect | NG API (stable) | V1 Beta API (newer) |
+|--------|----------------|---------------------|
+| Base URL | `https://app.harness.io/ng/api/` | `https://app.harness.io/v1/` |
+| Scoping | Query parameters (`?accountIdentifier=...`) | Path segments (`/orgs/{org}/projects/{proj}/...`) |
+| Account ID | `accountIdentifier` query param | `Harness-Account` header |
+| Auth header | `x-api-key` | `x-api-key` + `Harness-Account` |
+| Pagination | `pageIndex` / `pageSize` (default 50) | `page` / `limit` (default 30) |
+| Response | Wrapped in `{"status":"SUCCESS","data":{...}}` | Direct content (no envelope) |
+| Max page | 100 | 100 |
+
+**Our approach:** Use NG API for orgs/projects (better list support), V1 for pipelines (cleaner paths).
 
 ## Authentication
 
 ### API Key Authentication
 
-Harness uses API keys (Personal Access Tokens/PAT) for authentication.
+Harness uses Personal Access Tokens (PATs) for authentication.
 
-**Environment Variables:**
-- `HARNESS_API_KEY` - The API token itself
-- `HARNESS_ACCOUNT_ID` - Account identifier (required for all API calls)
-- `HARNESS_BASE_URL` - Base URL (optional, defaults to SaaS)
-  - SaaS: `https://app.harness.io/gateway/`
-  - Self-managed: `https://<your-domain>/gateway/`
+**Token format:** `pat.xxxx.yyyy.zzzz` (PAT prefix is standard)
 
-**Authentication Methods:**
-- Header-based: `x-api-key: <your-api-token>`
-- Bearer Token: `Authorization: Bearer <your-api-token>`
+**Token generation:**
+1. Login to Harness UI
+2. Navigate to Profile (bottom-left) -> My API Keys
+3. Click "+ API Key", enter a name
+4. Click "+ Token", set expiration, click Generate
+5. Copy immediately - **token is only shown once**
 
-**API Key Generation:**
-- Generated from Harness UI: Profile → Personal Access Tokens
-- Can be scoped to specific resources and permissions
-- Support for both Account-level and Project-level tokens
+**Token types:**
+- **Personal API Keys** - Account-level only, inherit user's permissions
+- **Service Account Tokens** - Can be scoped to account/org/project
+
+**Environment Variables (for jolt):**
+- `HARNESS_API_KEY` - The PAT token (required)
+- `HARNESS_ACCOUNT_ID` - Account identifier (required)
+- `HARNESS_BASE_URL` - Base URL (optional, defaults to `https://app.harness.io/`)
+
+**Account ID location:** Found in every Harness URL after `/account/`, e.g.:
+```
+https://app.harness.io/ng/#/account/6_vVHzo9Qeu9fXvj-AcQCb/settings/overview
+                                     ^^^^^^^^^^^^^^^^^^^^^^^^
+```
+Also visible in Profile -> Account Settings.
+
+**Required headers:**
+
+NG API:
+```http
+Content-Type: application/json
+x-api-key: pat.xxxx.yyyy.zzzz
+```
+
+V1 API (additional header):
+```http
+Content-Type: application/json
+x-api-key: pat.xxxx.yyyy.zzzz
+Harness-Account: YOUR_ACCOUNT_ID
+```
 
 ## Organizational Structure
-
-Harness uses a hierarchical structure with an explicit account level at the top:
 
 ```
 Account (Top-level)
@@ -48,48 +87,172 @@ Account (Top-level)
 Pipeline → Execution → Stage → Step → Logs
 ```
 
-This maps directly to GitHub Actions' hierarchy:
-- **Pipeline** ↔ Workflow
-- **Execution** ↔ Run
-- **Stage** ↔ Job
-- **Step** ↔ Step
+Maps to GitHub Actions:
+- **Pipeline** <-> Workflow
+- **Execution** <-> Run
+- **Stage** <-> Job
+- **Step** <-> Step
 
 **Key Identifiers:**
-- `accountIdentifier` - Unique account ID (required for all API calls)
+- `accountIdentifier` - Unique account ID (required for all NG API calls)
 - `orgIdentifier` - Organization identifier within account
 - `projectIdentifier` - Project identifier within organization
 
-**Scope Levels:**
-- **Account Level**: Resources available across all orgs/projects
-- **Organization Level**: Shared within org across projects
-- **Project Level**: Isolated to specific project
+## Organizations API (NG)
 
-**API Endpoints:**
-
-List Organizations:
+**List Organizations:**
 ```
-GET /ng/api/organizations?accountIdentifier={accountId}
-```
-
-List Projects:
-```
-GET /ng/api/projects?accountIdentifier={accountId}&orgIdentifier={orgId}
+GET https://app.harness.io/ng/api/organizations
+    ?accountIdentifier={accountId}
+    &pageIndex=0
+    &pageSize=50
+    &searchTerm={optional}
 ```
 
-## Runners
+**Response Structure:**
+```json
+{
+  "status": "SUCCESS",
+  "data": {
+    "content": [
+      {
+        "organization": {
+          "identifier": "default",
+          "name": "Default Organization",
+          "description": "Default organization",
+          "tags": {}
+        },
+        "createdAt": 1234567890000,
+        "lastModifiedAt": 1234567890000
+      }
+    ],
+    "pageIndex": 0,
+    "pageSize": 50,
+    "totalPages": 1,
+    "totalItems": 1
+  },
+  "metaData": {},
+  "correlationId": "uuid-string"
+}
+```
+
+**IMPORTANT:** Organization data is nested inside `content[].organization`, not flat.
+
+**Get Organization:**
+```
+GET https://app.harness.io/ng/api/organizations/{orgId}
+    ?accountIdentifier={accountId}
+```
+
+## Projects API (NG)
+
+**List Projects:**
+```
+GET https://app.harness.io/ng/api/projects
+    ?accountIdentifier={accountId}
+    &orgIdentifier={orgId}
+    &pageIndex=0
+    &pageSize=50
+    &searchTerm={optional}
+    &moduleType={optional: CD, CI, CF, CV}
+    &sortOrders={optional}
+```
+
+**Response Structure:**
+```json
+{
+  "status": "SUCCESS",
+  "data": {
+    "content": [
+      {
+        "project": {
+          "orgIdentifier": "default",
+          "identifier": "project1",
+          "name": "Project One",
+          "description": "First project",
+          "tags": {},
+          "modules": ["CD", "CI"]
+        },
+        "createdAt": 1234567890000,
+        "lastModifiedAt": 1234567890000,
+        "isFavorite": false
+      }
+    ],
+    "pageIndex": 0,
+    "pageSize": 50,
+    "totalPages": 1,
+    "totalItems": 1
+  },
+  "metaData": {},
+  "correlationId": "uuid-string"
+}
+```
+
+**IMPORTANT:** Project data is nested inside `content[].project`, not flat.
+
+**Get Project:**
+```
+GET https://app.harness.io/ng/api/projects/{projectId}
+    ?accountIdentifier={accountId}
+    &orgIdentifier={orgId}
+```
+
+## Pipelines API (V1 Beta)
+
+**List Pipelines:**
+```
+GET https://app.harness.io/v1/orgs/{org}/projects/{project}/pipelines
+    ?page=0
+    &limit=30
+    &searchTerm={optional}
+    &sort={optional: name, createdAt}
+    &order={optional: asc, desc}
+```
+
+Requires `Harness-Account` header.
+
+**Response Structure (V1 - no envelope):**
+```json
+[
+  {
+    "identifier": "pipeline1",
+    "name": "Pipeline One",
+    "description": "First pipeline",
+    "tags": {},
+    "createdAt": 1234567890000,
+    "lastModifiedAt": 1234567890000,
+    "recentExecutions": []
+  }
+]
+```
+
+**Alternative NG API:**
+```
+GET https://app.harness.io/ng/api/pipelines
+    ?accountIdentifier={accountId}
+    &orgIdentifier={orgId}
+    &projectIdentifier={projectId}
+    &pageIndex=0
+    &pageSize=50
+```
+
+**Get Pipeline (V1):**
+```
+GET https://app.harness.io/v1/orgs/{org}/projects/{project}/pipelines/{pipeline}
+```
+
+## Runners API (NG)
 
 **List Runners:**
 ```
-GET /ng/api/runner/list
+GET https://app.harness.io/ng/api/runner/list
+    ?accountIdentifier={accountId}
+    &orgIdentifier={optional}
+    &projectIdentifier={optional}
+    &status={optional: ACTIVE, INACTIVE, etc.}
+    &pageIndex=0
+    &pageSize=50
 ```
-
-**Query Parameters:**
-- `accountIdentifier` - Account ID (required)
-- `orgIdentifier` - Organization ID (optional)
-- `projectIdentifier` - Project ID (optional)
-- `status` - Filter by status (ACTIVE, INACTIVE, etc.)
-- `page` - Page number
-- `size` - Page size
 
 **Runner Status Values:**
 - `ACTIVE` - Runner is online and available
@@ -101,48 +264,55 @@ GET /ng/api/runner/list
 **Response Structure:**
 ```json
 {
+  "status": "SUCCESS",
   "data": {
     "content": [
       {
         "identifier": "runner-id",
         "name": "Runner Name",
         "status": "ACTIVE",
-        "lastHeartbeat": "timestamp",
+        "lastHeartbeat": 1234567890000,
         "ipAddress": "x.x.x.x",
         "capacity": 10,
         "runningBuilds": 3
       }
     ],
-    "totalElements": 100,
-    "totalPages": 10
+    "totalItems": 100,
+    "totalPages": 10,
+    "pageIndex": 0,
+    "pageSize": 50
   }
 }
 ```
 
-**Get Runner Details:**
+**Get Runner:**
 ```
-GET /ng/api/runner/{runnerId}
+GET https://app.harness.io/ng/api/runner/{runnerId}
+    ?accountIdentifier={accountId}
 ```
 
-## Pipeline Executions
+## Pipeline Executions API (NG)
 
 **List Pipeline Executions:**
 ```
-POST /pipeline/api/pipelines/execution/v2/list
+POST https://app.harness.io/pipeline/api/pipelines/execution/v2/list
+     ?accountIdentifier={accountId}
+     &orgIdentifier={orgId}
+     &projectIdentifier={projectId}
+     &pipelineIdentifier={optional}
+     &status={optional}
+     &pageIndex=0
+     &pageSize=50
 ```
 
-**Alternative (Summary):**
+**POST body (filter):**
+```json
+{
+  "filterType": "PipelineExecution",
+  "pipelineIdentifiers": ["pipeline-1"],
+  "status": ["Running", "Queued"]
+}
 ```
-GET /pipeline/api/pipelines/execution/summary
-```
-
-**Query Parameters:**
-- `accountIdentifier` - Account ID (required)
-- `orgIdentifier` - Organization ID (required)
-- `projectIdentifier` - Project ID (required)
-- `pipelineIdentifier` - Specific pipeline (optional)
-- `status` - Filter by status (optional)
-- `page`, `size` - Pagination
 
 **Status Values:**
 - `Running` - Currently executing
@@ -155,12 +325,16 @@ GET /pipeline/api/pipelines/execution/summary
 
 **Get Execution Details:**
 ```
-GET /pipeline/api/pipelines/execution/{planExecutionId}
+GET https://app.harness.io/pipeline/api/pipelines/execution/{planExecutionId}
+    ?accountIdentifier={accountId}
+    &orgIdentifier={orgId}
+    &projectIdentifier={projectId}
 ```
 
 **Response Structure:**
 ```json
 {
+  "status": "SUCCESS",
   "data": {
     "pipelineExecutionSummary": {
       "planExecutionId": "exec-id",
@@ -190,26 +364,21 @@ GET /pipeline/api/pipelines/execution/{planExecutionId}
 }
 ```
 
-**Hierarchy in Execution Response:**
-- **Execution** contains multiple **Stages**
-- Each **Stage** contains multiple **Steps**
-- Each **Step** produces logs that can be fetched individually
-
-## Logs
+## Logs API
 
 ### HTTP Log Endpoints
 
 **Get Execution Logs:**
 ```
-GET /log-service/blob/{accountId}/{key}
-GET /pipeline/api/pipelines/execution/{planExecutionId}/logs
+GET https://app.harness.io/log-service/blob/{accountId}/{key}
+GET https://app.harness.io/pipeline/api/pipelines/execution/{planExecutionId}/logs
 ```
 
 **Get Logs for Specific Step/Stage:**
 ```
-GET /log-service/log-stream
-  ?accountID={accountId}
-  &key={logKey}
+GET https://app.harness.io/log-service/log-stream
+    ?accountID={accountId}
+    &key={logKey}
 ```
 
 **Log Key Format:**
@@ -235,51 +404,55 @@ accountId/orgId/projectId/pipelineId/planExecutionId/stageId/stepId
 
 ### WebSocket Log Streaming
 
-Harness supports WebSocket connections for real-time log streaming.
-
-**WebSocket Endpoint:**
 ```
 wss://app.harness.io/log-service/stream
 ```
 
-**Features:**
 - Real-time log streaming as logs are generated
 - Subscribe to specific execution/step logs
 - Requires authentication via query params or headers
-- Receives log events as they're generated
 
 ## Common API Patterns
 
-### Pagination
+### Pagination (NG API)
 
+```
+?pageIndex=0&pageSize=50
+```
+
+Response includes:
 ```json
 {
-  "page": 0,
-  "size": 50,
-  "sort": ["createdAt,DESC"]
+  "pageIndex": 0,
+  "pageSize": 50,
+  "totalPages": 10,
+  "totalItems": 487
 }
 ```
 
-### Filtering
+Response headers:
+- `X-Total-Elements` - Total number of entries
+- `X-Page-Number` - Current page number
+- `X-Page-Size` - Number of entries per page
 
-```json
-{
-  "filterType": "PipelineExecution",
-  "pipelineIdentifiers": ["pipeline-1"],
-  "status": ["Running", "Queued"]
-}
+### Pagination (V1 API)
+
+```
+?page=0&limit=30
 ```
 
-### Standard Response Envelope
+### Standard Response Envelope (NG API only)
 
 ```json
 {
   "status": "SUCCESS",
-  "data": { /* actual data */ },
-  "metaData": null,
-  "correlationId": "correlation-id"
+  "data": { ... },
+  "metaData": {},
+  "correlationId": "uuid-string"
 }
 ```
+
+V1 API returns data directly without the envelope.
 
 ## Error Handling
 
@@ -292,34 +465,50 @@ wss://app.harness.io/log-service/stream
 - `429` - Rate Limited
 - `500` - Internal Server Error
 
-**Error Response:**
+**Error Response (NG):**
 ```json
 {
-  "status": "ERROR",
+  "status": "FAILURE",
   "code": "INVALID_REQUEST",
   "message": "Error description",
-  "correlationId": "correlation-id"
+  "errors": [
+    {
+      "field": "fieldName",
+      "message": "Field-specific error"
+    }
+  ],
+  "correlationId": "uuid-string"
 }
 ```
 
 ## Rate Limiting
 
-- Harness enforces rate limits on API requests
-- Handle with exponential backoff when encountering 429 responses
-- Cache responses aggressively to reduce API calls
+| Scope | Limit |
+|-------|-------|
+| Per API key | 1,000 requests/minute |
+| Per IP address | 5,000 requests/10 seconds (30,000/minute) |
 
-## Verification Needed
+Handle with exponential backoff when encountering 429 responses.
 
-The information above is based on general Harness API knowledge as of January 2025. The following should be verified against live API documentation:
+## Known Discrepancies from Initial Research
 
-1. Exact endpoint paths at https://apidocs.harness.io
-2. Current response structures and field names
-3. WebSocket connection details and authentication
-4. Rate limiting policies and best practices
-5. Latest API version and deprecation notices
+Issues found when comparing initial (speculative) research against official docs:
+
+1. **Base URL**: Was `https://app.harness.io/gateway/`, should be `https://app.harness.io/`
+2. **Org response nesting**: Orgs are at `content[].organization`, not `content[]` directly
+3. **Project response nesting**: Projects are at `content[].project`, not `content[]` directly
+4. **Pagination fields**: NG uses `totalItems`/`pageIndex`/`pageSize`, not `totalElements`/`page`/`size`
+5. **Error status**: Real API returns `"FAILURE"`, not `"ERROR"`
+6. **V1 pipeline API**: Has no response envelope, requires `Harness-Account` header
+7. **Pipeline endpoint**: V1 path is `/v1/orgs/{org}/projects/{proj}/pipelines`, not `/pipeline/api/pipelines`
 
 ## References
 
-- Harness Developer Hub: https://developer.harness.io
-- API Reference: https://apidocs.harness.io
-- API Quickstart: https://developer.harness.io/docs/platform/automation/api/api-quickstart
+- [Harness Developer Hub](https://developer.harness.io)
+- [API Reference (OpenAPI)](https://apidocs.harness.io)
+- [API Quickstart](https://developer.harness.io/docs/platform/automation/api/api-quickstart/)
+- [Manage API Keys](https://developer.harness.io/docs/platform/automation/api/add-and-manage-api-keys/)
+- [Platform Rate Limits](https://developer.harness.io/docs/platform/rate-limits/)
+- [List Pipelines](https://apidocs.harness.io/pipelines/list-pipelines)
+- [List Projects](https://apidocs.harness.io/project/getproject)
+- [List Organizations](https://apidocs.harness.io/organization/getorganization)
