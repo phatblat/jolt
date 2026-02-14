@@ -37,12 +37,17 @@ impl PlatformTrait for GitHubPlatform {
     }
 
     async fn list_organizations(&mut self) -> Result<Vec<Organization>> {
-        // For GitHub, we need to list both user and orgs
-        // This is a simplified implementation - in reality we'd need to:
-        // 1. Get the authenticated user
-        // 2. List the user's organizations
-        // For now, return empty to avoid API calls
-        Ok(vec![])
+        // Get the authenticated user as the first "organization"
+        let user = self.client.get_current_user().await?;
+        let mut orgs = vec![map_owner_to_organization(&user)];
+
+        // Get the user's organizations
+        let user_orgs = self.client.get_user_orgs().await?;
+        for org in &user_orgs {
+            orgs.push(map_owner_to_organization(org));
+        }
+
+        Ok(orgs)
     }
 
     async fn get_organization(&mut self, _org_id: &str) -> Result<Organization> {
@@ -51,9 +56,16 @@ impl PlatformTrait for GitHubPlatform {
         ))
     }
 
-    async fn list_projects(&mut self, _org_id: &str) -> Result<Vec<Project>> {
-        // Would list repositories for the org
-        Ok(vec![])
+    async fn list_projects(&mut self, org_id: &str) -> Result<Vec<Project>> {
+        // Determine if this is a user or org by checking against the authenticated user
+        let user = self.client.get_current_user().await?;
+        let repos = if user.login == org_id {
+            self.client.get_user_repos(1, 30).await?
+        } else {
+            self.client.get_org_repos(org_id, 1, 30).await?
+        };
+
+        Ok(repos.iter().map(map_repository_to_project).collect())
     }
 
     async fn get_project(&mut self, _org_id: &str, _project_id: &str) -> Result<Project> {
@@ -106,8 +118,26 @@ impl PlatformTrait for GitHubPlatform {
         Ok(vec![])
     }
 
-    async fn list_runners(&mut self, _scope: Option<&str>) -> Result<Vec<Runner>> {
-        Ok(vec![])
+    async fn list_runners(&mut self, scope: Option<&str>) -> Result<Vec<Runner>> {
+        // scope format: "owner/repo"
+        let scope = scope.ok_or_else(|| {
+            PlatformError::Other("GitHub runners require owner/repo scope".to_string())
+        })?;
+        let parts: Vec<&str> = scope.splitn(2, '/').collect();
+        if parts.len() != 2 {
+            return Err(PlatformError::Other(format!(
+                "Invalid scope format '{}', expected 'owner/repo'",
+                scope
+            )));
+        }
+        let (owner, repo) = (parts[0], parts[1]);
+
+        let (enriched, _count) = self.client.get_enriched_runners(owner, repo, 1, 30).await?;
+
+        Ok(enriched
+            .iter()
+            .map(|e| Runner::from_github_enriched(e, owner, repo))
+            .collect())
     }
 
     async fn get_runner(&mut self, _runner_id: &str) -> Result<Runner> {
@@ -137,6 +167,18 @@ pub fn map_owner_to_organization(owner: &crate::github::Owner) -> Organization {
     }
 }
 
+/// Convert GitHub Repository to unified Project.
+pub fn map_repository_to_project(repo: &crate::github::Repository) -> Project {
+    Project {
+        id: repo.name.clone(),
+        name: repo.name.clone(),
+        display_name: repo.full_name.clone(),
+        platform: Platform::GitHub,
+        org_id: repo.owner.login.clone(),
+        description: repo.description.clone(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -154,5 +196,48 @@ mod tests {
         assert_eq!(org.id, "octocat");
         assert_eq!(org.platform, Platform::GitHub);
         assert_eq!(org.org_type, Some(OrgType::User));
+    }
+
+    #[test]
+    fn test_map_owner_org_type() {
+        let owner = crate::github::Owner {
+            id: 67890,
+            login: "my-org".to_string(),
+            owner_type: GHOwnerType::Organization,
+            avatar_url: None,
+        };
+
+        let org = map_owner_to_organization(&owner);
+        assert_eq!(org.id, "my-org");
+        assert_eq!(org.org_type, Some(OrgType::Organization));
+    }
+
+    #[test]
+    fn test_map_repository_to_project() {
+        use chrono::Utc;
+
+        let repo = crate::github::Repository {
+            id: 12345,
+            name: "my-repo".to_string(),
+            full_name: "octocat/my-repo".to_string(),
+            owner: crate::github::Owner {
+                id: 1,
+                login: "octocat".to_string(),
+                owner_type: GHOwnerType::User,
+                avatar_url: None,
+            },
+            private: false,
+            description: Some("A test repo".to_string()),
+            updated_at: Utc::now(),
+            pushed_at: None,
+        };
+
+        let project = map_repository_to_project(&repo);
+        assert_eq!(project.id, "my-repo");
+        assert_eq!(project.name, "my-repo");
+        assert_eq!(project.display_name, "octocat/my-repo");
+        assert_eq!(project.platform, Platform::GitHub);
+        assert_eq!(project.org_id, "octocat");
+        assert_eq!(project.description, Some("A test repo".to_string()));
     }
 }

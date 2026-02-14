@@ -307,7 +307,9 @@ impl App {
             workflows.log_scroll_y = state.scroll_y;
         }
         if let RunnersViewLevel::Logs { job_id, .. } = runners.nav.current()
-            && let Some(state) = persisted.log_view_states.get(job_id)
+            && let Some(state) = persisted
+                .log_view_states
+                .get(&job_id.parse::<u64>().unwrap_or(0))
         {
             runners.log_selection_anchor = state.selection_anchor;
             runners.log_selection_cursor = state.selection_cursor;
@@ -363,7 +365,7 @@ impl App {
         // Save runners log state if viewing logs
         if let RunnersViewLevel::Logs { job_id, .. } = self.runners.nav.current() {
             log_view_states.insert(
-                *job_id,
+                job_id.parse::<u64>().unwrap_or(0),
                 LogViewState {
                     selection_anchor: self.runners.log_selection_anchor,
                     selection_cursor: self.runners.log_selection_cursor,
@@ -405,7 +407,7 @@ impl App {
             Tab::Runners => {
                 if let RunnersViewLevel::Logs { job_id, .. } = self.runners.nav.current() {
                     self.log_view_states.insert(
-                        *job_id,
+                        job_id.parse::<u64>().unwrap_or(0),
                         LogViewState {
                             selection_anchor: self.runners.log_selection_anchor,
                             selection_cursor: self.runners.log_selection_cursor,
@@ -625,19 +627,40 @@ impl App {
         // Check if runners list needs auto-refresh
         if self.active_tab == Tab::Runners {
             if let RunnersViewLevel::Runners {
-                ref owner,
-                ref repo,
+                ref org_id,
+                ref project_id,
             } = self.runners.nav.current().clone()
             {
                 if let Some(next_refresh) = self.runners.runners_next_refresh
                     && std::time::Instant::now() >= next_refresh
                 {
-                    // Time to refresh - force reload
                     self.runners.runners.set_loading();
-                    let owner = owner.clone();
-                    let repo = repo.clone();
-                    self.load_combined_runners(terminal, &owner, &repo).await;
-                    // Schedule next refresh
+                    let org_id = org_id.clone();
+                    let project_id = project_id.clone();
+                    let result = self
+                        .github_client
+                        .as_mut()
+                        .unwrap()
+                        .get_enriched_runners(&org_id, &project_id, 1, 30)
+                        .await;
+                    match result {
+                        Ok((runners, count)) => {
+                            let unified: Vec<crate::types::Runner> = runners
+                                .iter()
+                                .map(|e| {
+                                    crate::types::Runner::from_github_enriched(
+                                        e,
+                                        &org_id,
+                                        &project_id,
+                                    )
+                                })
+                                .collect();
+                            self.runners.runners.set_loaded(unified, count);
+                        }
+                        Err(e) => {
+                            self.runners.runners.set_error(e.to_string());
+                        }
+                    }
                     self.runners.runners_next_refresh =
                         Some(std::time::Instant::now() + std::time::Duration::from_secs(60));
                 }
@@ -1166,18 +1189,18 @@ impl App {
         let (owner, repo, run_id, job_id, job_name, job_status, job_conclusion) =
             match self.runners.nav.current() {
                 RunnersViewLevel::Logs {
-                    owner,
-                    repo,
+                    org_id,
+                    project_id,
                     run_id,
                     job_id,
                     job_name,
                     job_status,
                     job_conclusion,
                 } => (
-                    owner.clone(),
-                    repo.clone(),
-                    *run_id,
-                    *job_id,
+                    org_id.clone(),
+                    project_id.clone(),
+                    run_id.parse::<u64>().unwrap_or(0),
+                    job_id.parse::<u64>().unwrap_or(0),
                     job_name.clone(),
                     *job_status,
                     *job_conclusion,
@@ -1364,12 +1387,15 @@ impl App {
             .and_then(|data| {
                 // Find matching run by checking current job's run_id
                 if let RunnersViewLevel::Logs { run_id, .. } = self.runners.nav.current() {
-                    data.items.iter().find(|r| r.id == *run_id).map(|run| {
-                        let pr = run.pull_requests.first().map(|pr| pr.number);
-                        let branch = run.head_branch.clone();
-                        let sha = run.head_sha[..7.min(run.head_sha.len())].to_string();
-                        (pr, branch, sha)
-                    })
+                    data.items
+                        .iter()
+                        .find(|r| r.id.to_string() == *run_id)
+                        .map(|run| {
+                            let pr = run.pull_requests.first().map(|pr| pr.number);
+                            let branch = run.head_branch.clone();
+                            let sha = run.head_sha[..7.min(run.head_sha.len())].to_string();
+                            (pr, branch, sha)
+                        })
                 } else {
                     None
                 }
@@ -1386,7 +1412,7 @@ impl App {
                 if let RunnersViewLevel::Logs { job_id, .. } = self.runners.nav.current() {
                     data.items
                         .iter()
-                        .find(|j| j.id == *job_id)
+                        .find(|j| j.id.to_string() == *job_id)
                         .map(|job| (job.runner_name.clone(), Vec::new()))
                 } else {
                     None
@@ -1492,25 +1518,25 @@ impl App {
         // Reset runners state and build nav stack
         self.runners.nav = RunnersNavStack::default();
         self.runners.nav.push(RunnersViewLevel::Runners {
-            owner: ctx.owner.clone(),
-            repo: ctx.repo.clone(),
+            org_id: ctx.owner.clone(),
+            project_id: ctx.repo.clone(),
         });
         self.runners.nav.push(RunnersViewLevel::Runs {
-            owner: ctx.owner.clone(),
-            repo: ctx.repo.clone(),
+            org_id: ctx.owner.clone(),
+            project_id: ctx.repo.clone(),
             runner_name: session.run_metadata.runner_name.clone(),
         });
         self.runners.nav.push(RunnersViewLevel::Jobs {
-            owner: ctx.owner.clone(),
-            repo: ctx.repo.clone(),
-            run_id: ctx.run_id,
+            org_id: ctx.owner.clone(),
+            project_id: ctx.repo.clone(),
+            run_id: ctx.run_id.to_string(),
             run_number: ctx.run_number,
         });
         self.runners.nav.push(RunnersViewLevel::Logs {
-            owner: ctx.owner.clone(),
-            repo: ctx.repo.clone(),
-            run_id: ctx.run_id,
-            job_id: ctx.job_id,
+            org_id: ctx.owner.clone(),
+            project_id: ctx.repo.clone(),
+            run_id: ctx.run_id.to_string(),
+            job_id: ctx.job_id.to_string(),
             job_name: ctx.job_name.clone(),
             job_status: ctx.job_status,
             job_conclusion: ctx.job_conclusion,
@@ -1643,19 +1669,19 @@ impl App {
     /// Toggle favorite in Runners tab.
     fn toggle_runners_favorite(&mut self) {
         match self.runners.nav.current().clone() {
-            RunnersViewLevel::Repositories => {
-                let index = match self.runners.repositories.selected() {
+            RunnersViewLevel::Projects => {
+                let index = match self.runners.projects.selected() {
                     Some(i) => i,
                     None => return,
                 };
-                let data = match self.runners.repositories.data.data() {
+                let data = match self.runners.projects.data.data() {
                     Some(d) => d,
                     None => return,
                 };
                 let mut sorted: Vec<_> = data.items.iter().collect();
                 sorted.sort_by(|a, b| {
-                    let a_key = format!("{}/{}", a.owner.login, a.name);
-                    let b_key = format!("{}/{}", b.owner.login, b.name);
+                    let a_key = format!("{}/{}", a.org_id, a.id);
+                    let b_key = format!("{}/{}", b.org_id, b.id);
                     let a_fav = self.favorite_repos.contains(&a_key);
                     let b_fav = self.favorite_repos.contains(&b_key);
                     match (a_fav, b_fav) {
@@ -1664,8 +1690,8 @@ impl App {
                         _ => a_key.cmp(&b_key),
                     }
                 });
-                if let Some(repo) = sorted.get(index) {
-                    let key = format!("{}/{}", repo.owner.login, repo.name);
+                if let Some(project) = sorted.get(index) {
+                    let key = format!("{}/{}", project.org_id, project.id);
                     if self.favorite_repos.contains(&key) {
                         self.favorite_repos.remove(&key);
                     } else {
@@ -1674,8 +1700,8 @@ impl App {
                 }
             }
             RunnersViewLevel::Runners {
-                ref owner,
-                ref repo,
+                ref org_id,
+                ref project_id,
             } => {
                 let index = match self.runners.runners.selected() {
                     Some(i) => i,
@@ -1686,24 +1712,21 @@ impl App {
                     None => return,
                 };
                 let mut sorted: Vec<_> = data.items.iter().collect();
-                let owner = owner.clone();
-                let repo = repo.clone();
+                let org_id = org_id.clone();
+                let project_id = project_id.clone();
                 sorted.sort_by(|a, b| {
-                    a.scope
-                        .cmp(&b.scope)
-                        .then_with(|| {
-                            let a_fav = self
-                                .favorite_runners
-                                .contains(&a.favorite_key(&owner, &repo));
-                            let b_fav = self
-                                .favorite_runners
-                                .contains(&b.favorite_key(&owner, &repo));
-                            b_fav.cmp(&a_fav)
-                        })
-                        .then_with(|| a.runner.name.cmp(&b.runner.name))
+                    let a_key = format!("{}/{}/{}", org_id, project_id, a.name);
+                    let b_key = format!("{}/{}/{}", org_id, project_id, b.name);
+                    let a_fav = self.favorite_runners.contains(&a_key);
+                    let b_fav = self.favorite_runners.contains(&b_key);
+                    match (a_fav, b_fav) {
+                        (true, false) => std::cmp::Ordering::Less,
+                        (false, true) => std::cmp::Ordering::Greater,
+                        _ => a.name.cmp(&b.name),
+                    }
                 });
-                if let Some(enriched) = sorted.get(index) {
-                    let key = enriched.favorite_key(&owner, &repo);
+                if let Some(runner) = sorted.get(index) {
+                    let key = format!("{}/{}/{}", org_id, project_id, runner.name);
                     if self.favorite_runners.contains(&key) {
                         self.favorite_runners.remove(&key);
                     } else {
@@ -1826,13 +1849,13 @@ impl App {
     /// Get GitHub URL for current Runners tab view.
     fn get_runners_github_url(&self) -> Option<String> {
         match self.runners.nav.current().clone() {
-            RunnersViewLevel::Repositories => {
-                let index = self.runners.repositories.selected()?;
-                let data = self.runners.repositories.data.data()?;
+            RunnersViewLevel::Projects => {
+                let index = self.runners.projects.selected()?;
+                let data = self.runners.projects.data.data()?;
                 let mut sorted: Vec<_> = data.items.iter().collect();
                 sorted.sort_by(|a, b| {
-                    let a_key = format!("{}/{}", a.owner.login, a.name);
-                    let b_key = format!("{}/{}", b.owner.login, b.name);
+                    let a_key = format!("{}/{}", a.org_id, a.id);
+                    let b_key = format!("{}/{}", b.org_id, b.id);
                     let a_fav = self.favorite_repos.contains(&a_key);
                     let b_fav = self.favorite_repos.contains(&b_key);
                     match (a_fav, b_fav) {
@@ -1843,38 +1866,38 @@ impl App {
                 });
                 sorted
                     .get(index)
-                    .map(|repo| format!("https://github.com/{}/{}", repo.owner.login, repo.name))
+                    .map(|project| format!("https://github.com/{}/{}", project.org_id, project.id))
             }
-            RunnersViewLevel::Runners { owner, repo } => Some(format!(
-                "https://github.com/{owner}/{repo}/settings/actions/runners"
+            RunnersViewLevel::Runners { org_id, project_id } => Some(format!(
+                "https://github.com/{org_id}/{project_id}/settings/actions/runners"
             )),
-            RunnersViewLevel::Runs { owner, repo, .. } => {
-                self.runners.runs.selected_item().map(|run| {
-                    format!(
-                        "https://github.com/{}/{}/actions/runs/{}",
-                        owner, repo, run.id
-                    )
-                })
-            }
+            RunnersViewLevel::Runs {
+                org_id, project_id, ..
+            } => self.runners.runs.selected_item().map(|run| {
+                format!(
+                    "https://github.com/{}/{}/actions/runs/{}",
+                    org_id, project_id, run.id
+                )
+            }),
             RunnersViewLevel::Jobs {
-                owner,
-                repo,
+                org_id,
+                project_id,
                 run_id,
                 ..
             } => self.runners.jobs.selected_item().map(|job| {
                 format!(
                     "https://github.com/{}/{}/actions/runs/{}/job/{}",
-                    owner, repo, run_id, job.id
+                    org_id, project_id, run_id, job.id
                 )
             }),
             RunnersViewLevel::Logs {
-                owner,
-                repo,
+                org_id,
+                project_id,
                 run_id,
                 job_id,
                 ..
             } => Some(format!(
-                "https://github.com/{owner}/{repo}/actions/runs/{run_id}/job/{job_id}"
+                "https://github.com/{org_id}/{project_id}/actions/runs/{run_id}/job/{job_id}"
             )),
         }
     }
@@ -2064,19 +2087,19 @@ impl App {
 
         // Note: For views with favorites, we must sort to match the displayed order
         let next_level = match self.runners.nav.current().clone() {
-            RunnersViewLevel::Repositories => {
-                let index = match self.runners.repositories.selected() {
+            RunnersViewLevel::Projects => {
+                let index = match self.runners.projects.selected() {
                     Some(i) => i,
                     None => return,
                 };
-                let data = match self.runners.repositories.data.data() {
+                let data = match self.runners.projects.data.data() {
                     Some(d) => d,
                     None => return,
                 };
                 let mut sorted: Vec<_> = data.items.iter().collect();
                 sorted.sort_by(|a, b| {
-                    let a_key = format!("{}/{}", a.owner.login, a.name);
-                    let b_key = format!("{}/{}", b.owner.login, b.name);
+                    let a_key = format!("{}/{}", a.org_id, a.id);
+                    let b_key = format!("{}/{}", b.org_id, b.id);
                     let a_fav = self.favorite_repos.contains(&a_key);
                     let b_fav = self.favorite_repos.contains(&b_key);
                     match (a_fav, b_fav) {
@@ -2085,14 +2108,14 @@ impl App {
                         _ => a_key.cmp(&b_key),
                     }
                 });
-                sorted.get(index).map(|repo| RunnersViewLevel::Runners {
-                    owner: repo.owner.login.clone(),
-                    repo: repo.name.clone(),
+                sorted.get(index).map(|project| RunnersViewLevel::Runners {
+                    org_id: project.org_id.clone(),
+                    project_id: project.id.clone(),
                 })
             }
             RunnersViewLevel::Runners {
-                ref owner,
-                ref repo,
+                ref org_id,
+                ref project_id,
             } => {
                 let index = match self.runners.runners.selected() {
                     Some(i) => i,
@@ -2103,42 +2126,40 @@ impl App {
                     None => return,
                 };
                 let mut sorted: Vec<_> = data.items.iter().collect();
-                let owner = owner.clone();
-                let repo = repo.clone();
+                let org_id = org_id.clone();
+                let project_id = project_id.clone();
                 sorted.sort_by(|a, b| {
-                    a.scope
-                        .cmp(&b.scope)
-                        .then_with(|| {
-                            let a_fav = self
-                                .favorite_runners
-                                .contains(&a.favorite_key(&owner, &repo));
-                            let b_fav = self
-                                .favorite_runners
-                                .contains(&b.favorite_key(&owner, &repo));
-                            b_fav.cmp(&a_fav)
-                        })
-                        .then_with(|| a.runner.name.cmp(&b.runner.name))
+                    let a_key = format!("{}/{}/{}", org_id, project_id, a.name);
+                    let b_key = format!("{}/{}/{}", org_id, project_id, b.name);
+                    let a_fav = self.favorite_runners.contains(&a_key);
+                    let b_fav = self.favorite_runners.contains(&b_key);
+                    match (a_fav, b_fav) {
+                        (true, false) => std::cmp::Ordering::Less,
+                        (false, true) => std::cmp::Ordering::Greater,
+                        _ => a.name.cmp(&b.name),
+                    }
                 });
-                sorted.get(index).map(|enriched| RunnersViewLevel::Runs {
-                    owner,
-                    repo,
-                    runner_name: Some(enriched.runner.name.clone()),
+                sorted.get(index).map(|runner| RunnersViewLevel::Runs {
+                    org_id,
+                    project_id,
+                    runner_name: Some(runner.name.clone()),
                 })
             }
-            RunnersViewLevel::Runs { owner, repo, .. } => {
-                self.runners
-                    .runs
-                    .selected_item()
-                    .map(|run| RunnersViewLevel::Jobs {
-                        owner,
-                        repo,
-                        run_id: run.id,
-                        run_number: run.run_number,
-                    })
-            }
+            RunnersViewLevel::Runs {
+                org_id, project_id, ..
+            } => self
+                .runners
+                .runs
+                .selected_item()
+                .map(|run| RunnersViewLevel::Jobs {
+                    org_id,
+                    project_id,
+                    run_id: run.id.to_string(),
+                    run_number: run.run_number,
+                }),
             RunnersViewLevel::Jobs {
-                owner,
-                repo,
+                org_id,
+                project_id,
                 run_id,
                 ..
             } => {
@@ -2147,10 +2168,10 @@ impl App {
                     if let Some(list_item) = self.runners.job_list_items.get(index) {
                         let job = list_item.get_job(&self.runners.job_groups);
                         Some(RunnersViewLevel::Logs {
-                            owner,
-                            repo,
+                            org_id,
+                            project_id,
                             run_id,
-                            job_id: job.id,
+                            job_id: job.id.to_string(),
                             job_name: job.name.clone(),
                             job_status: job.status,
                             job_conclusion: job.conclusion,
@@ -2168,7 +2189,7 @@ impl App {
         if let Some(level) = next_level {
             // Check if entering logs and restore saved state
             let job_id_to_restore = if let RunnersViewLevel::Logs { job_id, .. } = &level {
-                Some(*job_id)
+                Some(job_id.parse::<u64>().unwrap_or(0))
             } else {
                 None
             };
@@ -2558,8 +2579,8 @@ impl App {
         let current_view = self.runners.nav.current().clone();
 
         match current_view {
-            RunnersViewLevel::Repositories => {
-                if self.runners.repositories.data.is_loaded() {
+            RunnersViewLevel::Projects => {
+                if self.runners.projects.data.is_loaded() {
                     return;
                 }
                 // Try to load from cache first
@@ -2568,17 +2589,57 @@ impl App {
                         cache::read_cached::<Vec<crate::github::Repository>>(&path)
                     && cached.is_valid(cache::DEFAULT_TTL)
                 {
-                    let count = cached.data.len() as u64;
-                    self.runners.repositories.set_loaded(cached.data, count);
+                    let projects: Vec<crate::types::Project> = cached
+                        .data
+                        .iter()
+                        .map(|r| crate::types::Project {
+                            id: r.name.clone(),
+                            name: r.name.clone(),
+                            display_name: format!("{}/{}", r.owner.login, r.name),
+                            platform: crate::types::Platform::GitHub,
+                            org_id: r.owner.login.clone(),
+                            description: r.description.clone(),
+                        })
+                        .collect();
+                    let count = projects.len() as u64;
+                    self.runners.projects.set_loaded(projects, count);
                     return;
                 }
-                // No valid cache — fetch repos, then filter to those with self-hosted runners
-                self.runners.repositories.set_loading();
-                self.filter_repos_by_runners(terminal).await;
+                self.runners.projects.set_loading();
+                let result = self
+                    .github_client
+                    .as_mut()
+                    .unwrap()
+                    .get_user_repos(1, 30)
+                    .await;
+                match result {
+                    Ok(repos) => {
+                        if let Some(path) = cache::runners_repos_path() {
+                            let _ = cache::write_cached(&path, &repos, false);
+                        }
+                        let projects: Vec<crate::types::Project> = repos
+                            .iter()
+                            .map(|r| crate::types::Project {
+                                id: r.name.clone(),
+                                name: r.name.clone(),
+                                display_name: format!("{}/{}", r.owner.login, r.name),
+                                platform: crate::types::Platform::GitHub,
+                                org_id: r.owner.login.clone(),
+                                description: r.description.clone(),
+                            })
+                            .collect();
+                        let count = projects.len() as u64;
+                        self.runners.projects.set_loaded(projects, count);
+                    }
+                    Err(e) => {
+                        self.runners.projects.set_error(e.to_string());
+                        self.log_error(format!("Failed to load projects: {e}"));
+                    }
+                }
             }
             RunnersViewLevel::Runners {
-                ref owner,
-                ref repo,
+                ref org_id,
+                ref project_id,
             } => {
                 // Start timer when entering runners view
                 if self.runners.runners_view_entered_at.is_none() {
@@ -2590,26 +2651,50 @@ impl App {
 
                 if !self.runners.runners.data.is_loaded() {
                     self.runners.runners.set_loading();
-                    let owner = owner.clone();
-                    let repo = repo.clone();
-                    self.load_combined_runners(terminal, &owner, &repo).await;
+                    let org_id = org_id.clone();
+                    let project_id = project_id.clone();
+                    let result = self
+                        .github_client
+                        .as_mut()
+                        .unwrap()
+                        .get_enriched_runners(&org_id, &project_id, 1, 30)
+                        .await;
+                    match result {
+                        Ok((runners, count)) => {
+                            let unified: Vec<crate::types::Runner> = runners
+                                .iter()
+                                .map(|e| {
+                                    crate::types::Runner::from_github_enriched(
+                                        e,
+                                        &org_id,
+                                        &project_id,
+                                    )
+                                })
+                                .collect();
+                            self.runners.runners.set_loaded(unified, count);
+                        }
+                        Err(e) => {
+                            self.runners.runners.set_error(e.to_string());
+                            self.log_error(format!("Failed to load runners: {e}"));
+                        }
+                    }
                 }
             }
             RunnersViewLevel::Runs {
-                ref owner,
-                ref repo,
+                ref org_id,
+                ref project_id,
                 ..
             } => {
                 if !self.runners.runs.data.is_loaded() {
                     self.runners.runs.set_loading();
-                    let owner = owner.clone();
-                    let repo = repo.clone();
+                    let org_id = org_id.clone();
+                    let project_id = project_id.clone();
                     // Get all workflow runs for the repo
                     let result = self
                         .github_client
                         .as_mut()
                         .unwrap()
-                        .get_workflow_runs(&owner, &repo, 1, 30)
+                        .get_workflow_runs(&org_id, &project_id, 1, 30)
                         .await;
                     match result {
                         Ok((mut runs, count)) => {
@@ -2625,20 +2710,21 @@ impl App {
                 }
             }
             RunnersViewLevel::Jobs {
-                ref owner,
-                ref repo,
-                run_id,
+                ref org_id,
+                ref project_id,
+                ref run_id,
                 ..
             } => {
                 if !self.runners.jobs.data.is_loaded() {
                     self.runners.jobs.set_loading();
-                    let owner = owner.clone();
-                    let repo = repo.clone();
+                    let org_id = org_id.clone();
+                    let project_id = project_id.clone();
+                    let run_id_u64 = run_id.parse::<u64>().unwrap_or(0);
                     let result = self
                         .github_client
                         .as_mut()
                         .unwrap()
-                        .get_jobs(&owner, &repo, run_id, 1, 30)
+                        .get_jobs(&org_id, &project_id, run_id_u64, 1, 30)
                         .await;
                     match result {
                         Ok((jobs, count)) => {
@@ -2656,20 +2742,21 @@ impl App {
                 }
             }
             RunnersViewLevel::Logs {
-                ref owner,
-                ref repo,
-                job_id,
+                ref org_id,
+                ref project_id,
+                ref job_id,
                 ..
             } => {
                 if !self.runners.log_content.is_loaded() {
                     self.runners.log_content = LoadingState::Loading;
-                    let owner = owner.clone();
-                    let repo = repo.clone();
+                    let org_id = org_id.clone();
+                    let project_id = project_id.clone();
+                    let job_id_u64 = job_id.parse::<u64>().unwrap_or(0);
                     let result = self
                         .github_client
                         .as_mut()
                         .unwrap()
-                        .get_job_logs(&owner, &repo, job_id)
+                        .get_job_logs(&org_id, &project_id, job_id_u64)
                         .await;
                     match result {
                         Ok(logs) => {

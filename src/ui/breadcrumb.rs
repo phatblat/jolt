@@ -95,6 +95,8 @@ pub fn draw_breadcrumb_with_platform(
 }
 
 /// Render the breadcrumb trail for Runners tab.
+/// Convenience wrapper when no platform context is available.
+#[allow(dead_code)]
 pub fn draw_runners_breadcrumb(
     frame: &mut Frame,
     breadcrumbs: &[RunnersBreadcrumb],

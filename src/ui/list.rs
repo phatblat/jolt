@@ -11,7 +11,7 @@ use crate::github::{
     RunStatus, RunnerStatus, Workflow, WorkflowRun,
 };
 use crate::state::{LoadingState, SelectableList};
-use crate::types::Platform;
+use crate::types::{self, Platform};
 use crate::ui::platform_badge;
 
 /// Format a timestamp as relative time (e.g., "2h ago").
@@ -216,6 +216,8 @@ pub fn render_repositories_list(
 }
 
 /// Render repositories list for Runners tab (shows owner/repo).
+/// Kept for Workflows tab migration reference.
+#[allow(dead_code)]
 pub fn render_runner_repositories_list(
     frame: &mut Frame,
     list: &mut SelectableList<Repository>,
@@ -574,6 +576,8 @@ pub fn render_jobs_list(
 }
 
 /// Render runners list.
+/// Kept for Workflows tab migration reference.
+#[allow(dead_code)]
 pub fn render_runners_list(
     frame: &mut Frame,
     list: &mut SelectableList<EnrichedRunner>,
@@ -682,6 +686,161 @@ pub fn render_runners_list(
                                 format!("  {}", runner.os),
                                 Style::default().fg(Color::Cyan),
                             ),
+                            Span::styled(labels_str, Style::default().fg(Color::DarkGray)),
+                            Span::styled(busy_info, Style::default().fg(Color::Yellow)),
+                        ]))
+                    })
+                    .collect();
+
+                let list_widget = List::new(items)
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title(" Self-Hosted Runners "),
+                    )
+                    .highlight_style(
+                        Style::default()
+                            .bg(Color::DarkGray)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                    .highlight_symbol("> ");
+
+                frame.render_stateful_widget(list_widget, area, &mut list.list_state);
+            }
+        }
+    }
+}
+
+// ========================================
+// Unified Render Functions (for Runners tab)
+// ========================================
+
+/// Render unified projects list (used by Runners tab).
+pub fn render_projects_list(
+    frame: &mut Frame,
+    list: &mut SelectableList<types::Project>,
+    favorites: &HashSet<String>,
+    area: Rect,
+) {
+    match &list.data {
+        LoadingState::Idle => render_empty(frame, area, "Press Enter to load"),
+        LoadingState::Loading => render_loading(frame, area, "Loading projects"),
+        LoadingState::Error(e) => render_error(frame, area, e),
+        LoadingState::Loaded(data) => {
+            if data.is_empty() {
+                render_empty(frame, area, "No projects found");
+            } else {
+                // Sort: favorites first, then by display_name
+                let mut sorted: Vec<_> = data.items.iter().collect();
+                sorted.sort_by(|a, b| {
+                    let a_fav = favorites.contains(&a.display_name);
+                    let b_fav = favorites.contains(&b.display_name);
+                    match (a_fav, b_fav) {
+                        (true, false) => std::cmp::Ordering::Less,
+                        (false, true) => std::cmp::Ordering::Greater,
+                        _ => a.display_name.cmp(&b.display_name),
+                    }
+                });
+
+                let items: Vec<ListItem> = sorted
+                    .iter()
+                    .map(|project| {
+                        let is_fav = favorites.contains(&project.display_name);
+                        let star = if is_fav { "⭐ " } else { "" };
+                        ListItem::new(Line::from(vec![
+                            platform_badge::render_badge(project.platform),
+                            Span::raw(" "),
+                            Span::raw(star),
+                            Span::styled(&project.display_name, Style::default().fg(Color::Cyan)),
+                        ]))
+                    })
+                    .collect();
+
+                let list_widget = List::new(items)
+                    .block(Block::default().borders(Borders::ALL).title(" Projects "))
+                    .highlight_style(
+                        Style::default()
+                            .bg(Color::DarkGray)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                    .highlight_symbol("> ");
+
+                frame.render_stateful_widget(list_widget, area, &mut list.list_state);
+            }
+        }
+    }
+}
+
+/// Render unified runners list (used by Runners tab).
+pub fn render_unified_runners_list(
+    frame: &mut Frame,
+    list: &mut SelectableList<types::Runner>,
+    favorites: &HashSet<String>,
+    org_id: &str,
+    project_id: &str,
+    area: Rect,
+) {
+    match &list.data {
+        LoadingState::Idle => render_empty(frame, area, "Press Enter to load"),
+        LoadingState::Loading => render_loading(frame, area, "Loading runners"),
+        LoadingState::Error(e) => render_error(frame, area, e),
+        LoadingState::Loaded(data) => {
+            if data.is_empty() {
+                render_empty(frame, area, "No runners found");
+            } else {
+                // Sort: favorites first, then by name
+                let mut sorted: Vec<_> = data.items.iter().collect();
+                sorted.sort_by(|a, b| {
+                    let a_key = format!("{}/{}/{}", org_id, project_id, a.name);
+                    let b_key = format!("{}/{}/{}", org_id, project_id, b.name);
+                    let a_fav = favorites.contains(&a_key);
+                    let b_fav = favorites.contains(&b_key);
+                    match (a_fav, b_fav) {
+                        (true, false) => std::cmp::Ordering::Less,
+                        (false, true) => std::cmp::Ordering::Greater,
+                        _ => a.name.cmp(&b.name),
+                    }
+                });
+
+                let items: Vec<ListItem> = sorted
+                    .iter()
+                    .map(|runner| {
+                        let key = format!("{}/{}/{}", org_id, project_id, runner.name);
+                        let is_fav = favorites.contains(&key);
+                        let star = if is_fav { "⭐ " } else { "" };
+
+                        let (status_icon, status_color) = match runner.status {
+                            types::RunnerStatus::Online => ("🟢", Color::Green),
+                            types::RunnerStatus::Offline => ("⚫", Color::DarkGray),
+                            types::RunnerStatus::Busy => ("🟡", Color::Yellow),
+                            types::RunnerStatus::Unhealthy => ("🔴", Color::Red),
+                        };
+
+                        let labels_str = match &runner.labels {
+                            Some(labels) if !labels.is_empty() => {
+                                let display: Vec<&str> =
+                                    labels.iter().take(3).map(|l| l.as_str()).collect();
+                                format!("  [{}]", display.join(", "))
+                            }
+                            _ => String::new(),
+                        };
+
+                        let os_str = match &runner.os {
+                            Some(os) => format!("  {}", os),
+                            None => String::new(),
+                        };
+
+                        let busy_info = match &runner.current_job {
+                            Some(info) => format!("  {}", info),
+                            None => String::new(),
+                        };
+
+                        ListItem::new(Line::from(vec![
+                            platform_badge::render_badge(runner.platform),
+                            Span::raw(" "),
+                            Span::raw(format!("{}{} ", star, status_icon)),
+                            Span::styled(&runner.name, Style::default().fg(status_color)),
+                            Span::styled(os_str, Style::default().fg(Color::Cyan)),
                             Span::styled(labels_str, Style::default().fg(Color::DarkGray)),
                             Span::styled(busy_info, Style::default().fg(Color::Yellow)),
                         ]))

@@ -288,6 +288,7 @@ pub fn map_runner(runner: &crate::harness::Runner) -> Runner {
             }
         }),
         labels: None,
+        os: None,
     }
 }
 

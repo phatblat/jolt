@@ -163,6 +163,8 @@ pub struct Runner {
     pub current_job: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub os: Option<String>,
 }
 
 /// Unified runner status.
@@ -284,6 +286,7 @@ impl Runner {
             },
             current_job,
             labels,
+            os: Some(runner.os.clone()),
         }
     }
 }

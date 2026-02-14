@@ -28,51 +28,78 @@
   - Extracts current job info (PR number, branch, start time)
   - Handles label extraction
   - Sets appropriate RunnerScope
+  - Populates `os` field from GitHub runner data
 
 ### Platform Badges in All Lists (`src/ui/list.rs`)
-- All list render functions now display `[GH]` platform badge at start of each item:
+- All list render functions display `[GH]` or `[HR]` platform badge at start of each item:
   - `render_owners_list()` - Owners with platform badge
   - `render_repositories_list()` - Repositories (Workflows tab) with badge
-  - `render_runner_repositories_list()` - Repositories (Runners tab) with badge
+  - `render_runner_repositories_list()` - Repositories (Runners tab, kept for reference)
   - `render_workflows_list()` - Workflows with badge
   - `render_runs_list()` - Workflow runs with badge
   - `render_jobs_list()` - Jobs with badge
-  - `render_runners_list()` - Runners with badge
-- Badges currently hardcoded to GitHub (will become dynamic with unified types)
+  - `render_runners_list()` - Runners with badge (kept for reference)
+- **New unified render functions** (dynamic badges from `item.platform`):
+  - `render_projects_list()` - Unified projects list with dynamic platform badges
+  - `render_unified_runners_list()` - Unified runners list with OS, labels, job info
+
+### Phase 4a: Runners Tab Unified Types ✅
+
+Runners tab fully migrated from GitHub-specific types to unified platform-agnostic types.
+
+#### State Layer (`src/state/runners.rs`)
+- `RunnersViewLevel::Repositories` → `RunnersViewLevel::Projects`
+- `SelectableList<Repository>` → `SelectableList<Project>` (unified type)
+- `SelectableList<EnrichedRunner>` → `SelectableList<Runner>` (unified type)
+- `owner`/`repo` fields → `org_id`/`project_id` (platform-agnostic naming)
+- `run_id: u64` / `job_id: u64` → `String` (platform-agnostic IDs)
+- Platform-aware title and breadcrumb methods:
+  - `title_for_platform()` - "Repositories" (GitHub) vs "Projects" (Harness)
+  - `breadcrumb_label_for_platform()` - "Repos" (GitHub) vs "Projects" (Harness)
+  - "Runs" (GitHub) vs "Executions" (Harness), "Jobs" vs "Stages"
+- `current_platform()` method derives platform from selected project
+
+#### App Layer (`src/app.rs`)
+- All Runners tab data loading uses unified types with conversion at platform boundaries
+- GitHub `EnrichedRunner` → unified `Runner` via `Runner::from_github_enriched()`
+- GitHub `Repository` → unified `Project` via inline conversion (cache-compatible)
+- String-based IDs with `parse::<u64>()` at GitHub API call sites
+- Auto-refresh loop uses unified types
+
+#### UI Layer (`src/ui/mod.rs`, `src/ui/list.rs`)
+- `draw_runners_tab()` uses `render_projects_list()` and `render_unified_runners_list()`
+- Platform-aware breadcrumbs rendered via `draw_runners_breadcrumb_with_platform()`
+- Dynamic platform badges from `item.platform` field (not hardcoded)
+
+#### Platform Layer (`src/platform/github.rs`, `src/platform/harness.rs`)
+- `GitHubPlatform::list_organizations()` - Real API calls (user + orgs)
+- `GitHubPlatform::list_projects()` - Real API calls (user repos vs org repos)
+- `GitHubPlatform::list_runners()` - Real API calls with scope parsing
+- `map_repository_to_project()` - New mapper function with tests
+- `map_owner_to_organization()` - Tested for both User and Organization types
+- Harness `map_runner()` sets `os: None`
 
 ### Testing
-- All 21 tests passing
+- All tests passing
 - Clippy clean with `-D warnings`
 - Builds successfully
+- New unit tests: `test_map_owner_org_type`, `test_map_repository_to_project`
 
 ## Remaining Work 🚧
 
-### Data Integration (Refactoring Required)
+### Phase 4b: Workflows Tab Migration
 
-#### 1. Convert State Types to Unified Types
-Currently state modules use GitHub-specific types. Need to:
-
+#### 1. Convert Workflows State Types to Unified Types
 - **Update `src/state/workflows.rs`**:
   - Change `SelectableList<Owner>` → `SelectableList<Organization>`
   - Change `SelectableList<Repository>` → `SelectableList<Project>`
   - Update all data structures to use unified types
+  - Add platform-aware title/breadcrumb methods (same pattern as Runners)
 
-- **Update `src/state/runners.rs`**:
-  - Same conversion to unified types
-  - Update navigation to handle multi-platform data
-
-#### 2. Multi-Platform Data Fetching
-Update `load_current_view()` and `load_runners_view()` in `src/app.rs`:
+#### 2. Multi-Platform Data Fetching for Workflows
+Update `load_current_view()` in `src/app.rs`:
 
 ```rust
-// Current (GitHub only):
-let result = self
-    .github_client
-    .as_mut()
-    .unwrap()
-    .get_enriched_runners(&owner, &repo, 1, 30)
-    .await;
-
 // Target (Multi-platform):
 let mut all_runners = Vec::new();
 for platform in self.platform_manager.platforms_mut() {
@@ -84,31 +111,30 @@ for platform in self.platform_manager.platforms_mut() {
 all_runners.sort_by(|a, b| a.name.cmp(&b.name));
 ```
 
-#### 3. Make Platform Badges Dynamic
-Platform badges are already rendered in all lists, but currently hardcoded to GitHub.
-Once unified types are used, change from:
-
-```rust
-platform_badge::render_badge(Platform::GitHub)
-```
-
-To dynamic based on item platform:
+#### 3. Make Workflows Tab Platform Badges Dynamic
+Workflows tab badges still hardcoded to GitHub. Apply same pattern from Runners tab:
 
 ```rust
 platform_badge::render_badge(item.platform)
 ```
 
-#### 4. Handle Platform-Specific Behavior
-- GitHub: Runners are repository-scoped
-- Harness: Runners can be org-scoped, project-scoped, or account-scoped
-- Navigation needs to handle different scoping models
-- May need to add "scope" field to runner display
+### Phase 4c: Polish
 
-#### 5. Add Platform Filtering
+#### 1. Add Platform Filtering
 - Add `platform_filter: Option<Platform>` to `App` state
 - Press 'f' to cycle through: All → GitHub → Harness → All
 - Filter data before rendering based on `platform_filter`
 - Show current filter state in UI (e.g., in status bar)
+
+#### 2. Handle Platform-Specific Behavior
+- GitHub: Runners are repository-scoped
+- Harness: Runners can be org-scoped, project-scoped, or account-scoped
+- Navigation needs to handle different scoping models
+
+#### 3. Error handling and performance
+- Error handling for platform-specific issues
+- Loading indicators for parallel queries
+- Performance optimization
 
 ### Steps Navigation Level (Deferred)
 Adding the 7th level (Steps between Jobs and Logs) was started but reverted due to scope:
@@ -119,17 +145,17 @@ Adding the 7th level (Steps between Jobs and Logs) was started but reverted due 
 
 ## Implementation Strategy
 
-### Recommended Approach: Incremental Migration
+### Incremental Migration (In Progress)
 
-**Phase 4a: Runners Tab Only** (Smaller Scope)
+**Phase 4a: Runners Tab Only** ✅ Complete
 1. ✅ Add `Runner::from_github_enriched()` type conversion
 2. ✅ Add platform badges to runner lists (all list renders)
-3. Convert Runners tab state to use unified types
-4. Update `load_runners_view()` to query multiple platforms
-5. Test with both GitHub and Harness
-6. **Milestone**: Runners tab shows mixed GitHub + Harness runners
+3. ✅ Convert Runners tab state to use unified types
+4. ✅ Update `load_runners_view()` with unified type conversions at boundary
+5. ✅ Platform-aware breadcrumbs and titles
+6. **Milestone**: Runners tab uses unified types with dynamic platform badges
 
-**Phase 4b: Workflows Tab** (After 4a works)
+**Phase 4b: Workflows Tab** (Next)
 1. ✅ Platform badges already added to all workflow lists
 2. Convert Workflows tab state to use unified types
 3. Update `load_current_view()` for multi-platform
@@ -143,17 +169,10 @@ Adding the 7th level (Steps between Jobs and Logs) was started but reverted due 
 4. Performance optimization
 5. **Milestone**: Phase 4 complete
 
-### Alternative Approach: All-at-Once Refactor
-
-Convert everything to unified types in one large PR:
-- More risky (many changes, harder to test incrementally)
-- Requires careful coordination
-- But once done, everything is consistent
-
 ## Testing Plan
 
 For each increment:
-1. **Unit Tests**: Unified type conversions
+1. **Unit Tests**: Unified type conversions, mapper functions
 2. **Integration Tests**: Multi-platform queries
 3. **Manual Testing**:
    - Set both `GITHUB_TOKEN` and `HARNESS_*` env vars
@@ -164,47 +183,42 @@ For each increment:
    - Test with only Harness (GitHub unavailable)
    - Test with neither (graceful degradation)
 
-## Risk Assessment
-
-### High Risk Items
-- **Type conversions**: Easy to miss a field or get mapping wrong
-- **Parallel queries**: Error handling when one platform fails
-- **Performance**: Two API calls instead of one (mitigate with caching)
-- **Navigation differences**: GitHub repo-centric vs Harness org/project-centric
-
-### Mitigation Strategies
-- Start with Runners tab (simpler than Workflows)
-- Add extensive logging during development
-- Test with real Harness account, not just mocks
-- Cache aggressively to reduce API calls
-- Handle errors gracefully (show data from available platforms)
-
-## Estimated Effort
-
-- **Phase 4a (Runners Only)**: 4-6 hours
-- **Phase 4b (Workflows)**: 6-8 hours
-- **Phase 4c (Polish)**: 2-3 hours
-- **Total**: 12-17 hours of focused development
-
 ## Current State
 
-**Infrastructure**: Complete and committed ✅
-**Type Conversions**: Runner conversion done ✅
-**Platform Badges in UI**: All lists have badges (hardcoded to GitHub) ✅
-**State Type Migration**: Not started 🚧
-**Multi-Platform Fetching**: Not started 🚧
-**Next Step**: Convert state types (SelectableList<Owner> → SelectableList<Organization>, etc.)
+**Phase 4a (Runners Tab)**: Complete ✅
+**Phase 4b (Workflows Tab)**: Not started 🚧
+**Phase 4c (Polish)**: Not started 🚧
+**Next Step**: Migrate Workflows tab state to unified types (same pattern as Runners)
 
-## Files That Need Changes
+## Files Changed in Phase 4a
+
+### Types
+- `src/types/mod.rs` - Added `os: Option<String>` to unified Runner
+
+### Platform
+- `src/platform/github.rs` - Real API implementations, `map_repository_to_project()`, tests
+- `src/platform/harness.rs` - Set `os: None` in mapper
+
+### State
+- `src/state/runners.rs` - Migrated to unified types, platform-aware methods
+
+### UI
+- `src/ui/list.rs` - `render_projects_list()`, `render_unified_runners_list()`
+- `src/ui/mod.rs` - Wired unified render functions, platform-aware breadcrumbs
+- `src/ui/breadcrumb.rs` - `#[allow(dead_code)]` on unused convenience wrapper
+
+### App
+- `src/app.rs` - Unified type conversions at boundaries, string-based IDs
+
+## Files That Need Changes (Phase 4b)
 
 ### Core Data Structures
-- `src/state/runners.rs` - Change to unified types
 - `src/state/workflows.rs` - Change to unified types
-- `src/app.rs` - Update data fetching logic
+- `src/app.rs` - Update workflows data fetching logic
 
 ### UI Rendering
-- `src/ui/list.rs` - Update all render functions
-- `src/ui/mod.rs` - Update view rendering to use platform badges
+- `src/ui/list.rs` - Update workflow render functions for dynamic badges
+- `src/ui/mod.rs` - Update workflow view rendering
 
 ### Testing
 - Add integration tests for multi-platform queries

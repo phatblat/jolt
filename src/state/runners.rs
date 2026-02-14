@@ -3,38 +3,37 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::github::{
-    EnrichedRunner, Job, JobGroup, JobListItem, Repository, RunConclusion, RunStatus, WorkflowRun,
-};
+use crate::github::{JobGroup, JobListItem, RunConclusion, RunStatus, WorkflowRun};
+use crate::types::{Platform, Project, Runner};
 
 use super::workflows::{LoadingState, SelectableList};
 
 /// Navigation level for the Runners tab.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RunnersViewLevel {
-    /// Top level: repositories with runners
-    Repositories,
-    /// Runners for a specific repository
-    Runners { owner: String, repo: String },
+    /// Top level: projects (repositories) with runners
+    Projects,
+    /// Runners for a specific project
+    Runners { org_id: String, project_id: String },
     /// Workflow runs (optionally filtered by runner)
     Runs {
-        owner: String,
-        repo: String,
+        org_id: String,
+        project_id: String,
         runner_name: Option<String>,
     },
     /// Jobs for a specific run
     Jobs {
-        owner: String,
-        repo: String,
-        run_id: u64,
+        org_id: String,
+        project_id: String,
+        run_id: String,
         run_number: u64,
     },
     /// Log viewer for a specific job
     Logs {
-        owner: String,
-        repo: String,
-        run_id: u64,
-        job_id: u64,
+        org_id: String,
+        project_id: String,
+        run_id: String,
+        job_id: String,
         job_name: String,
         job_status: RunStatus,
         job_conclusion: Option<RunConclusion>,
@@ -44,30 +43,62 @@ pub enum RunnersViewLevel {
 impl RunnersViewLevel {
     /// Get the display title for this view level.
     pub fn title(&self) -> String {
+        self.title_for_platform(None)
+    }
+
+    /// Get the display title for this view level with platform-aware labels.
+    pub fn title_for_platform(&self, platform: Option<Platform>) -> String {
         match self {
-            RunnersViewLevel::Repositories => "Repositories".to_string(),
-            RunnersViewLevel::Runners { owner, repo } => {
-                format!("{owner}/{repo} / Runners")
+            RunnersViewLevel::Projects => match platform {
+                Some(Platform::Harness) => "Projects".to_string(),
+                Some(Platform::GitHub) => "Repositories".to_string(),
+                None => "Projects".to_string(),
+            },
+            RunnersViewLevel::Runners { org_id, project_id } => {
+                format!("{org_id}/{project_id} / Runners")
             }
             RunnersViewLevel::Runs { runner_name, .. } => {
+                let label = match platform {
+                    Some(Platform::Harness) => "Executions",
+                    _ => "Runs",
+                };
                 if let Some(name) = runner_name {
-                    format!("{name} / Runs")
+                    format!("{name} / {label}")
                 } else {
-                    "All Runs".to_string()
+                    format!("All {}", label)
                 }
             }
-            RunnersViewLevel::Jobs { run_number, .. } => format!("Run #{run_number} / Jobs"),
+            RunnersViewLevel::Jobs { run_number, .. } => {
+                let label = match platform {
+                    Some(Platform::Harness) => "Stages",
+                    _ => "Jobs",
+                };
+                format!("Run #{run_number} / {label}")
+            }
             RunnersViewLevel::Logs { job_name, .. } => format!("{job_name} / Logs"),
         }
     }
 
     /// Create a breadcrumb label for this level.
     pub fn breadcrumb_label(&self) -> String {
+        self.breadcrumb_label_for_platform(None)
+    }
+
+    /// Create a breadcrumb label for this level with platform-aware labels.
+    pub fn breadcrumb_label_for_platform(&self, platform: Option<Platform>) -> String {
         match self {
-            RunnersViewLevel::Repositories => "Repos".to_string(),
-            RunnersViewLevel::Runners { repo, .. } => repo.clone(),
+            RunnersViewLevel::Projects => match platform {
+                Some(Platform::Harness) => "Projects".to_string(),
+                Some(Platform::GitHub) => "Repos".to_string(),
+                None => "Projects".to_string(),
+            },
+            RunnersViewLevel::Runners { project_id, .. } => project_id.clone(),
             RunnersViewLevel::Runs { runner_name, .. } => {
-                runner_name.clone().unwrap_or_else(|| "Runs".to_string())
+                let label = match platform {
+                    Some(Platform::Harness) => "Executions",
+                    _ => "Runs",
+                };
+                runner_name.clone().unwrap_or_else(|| label.to_string())
             }
             RunnersViewLevel::Jobs { run_number, .. } => format!("#{run_number}"),
             RunnersViewLevel::Logs { job_name, .. } => job_name.clone(),
@@ -91,7 +122,7 @@ pub struct RunnersNavStack {
 impl Default for RunnersNavStack {
     fn default() -> Self {
         Self {
-            stack: vec![RunnersViewLevel::Repositories],
+            stack: vec![RunnersViewLevel::Projects],
         }
     }
 }
@@ -119,10 +150,15 @@ impl RunnersNavStack {
 
     /// Get the breadcrumb trail.
     pub fn breadcrumbs(&self) -> Vec<RunnersBreadcrumb> {
+        self.breadcrumbs_for_platform(None)
+    }
+
+    /// Get the breadcrumb trail with platform-aware labels.
+    pub fn breadcrumbs_for_platform(&self, platform: Option<Platform>) -> Vec<RunnersBreadcrumb> {
         self.stack
             .iter()
             .map(|level| RunnersBreadcrumb {
-                label: level.breadcrumb_label(),
+                label: level.breadcrumb_label_for_platform(platform),
                 level: level.clone(),
             })
             .collect()
@@ -134,14 +170,14 @@ impl RunnersNavStack {
 pub struct RunnersTabState {
     /// Navigation stack for breadcrumb trail.
     pub nav: RunnersNavStack,
-    /// Repositories with runners.
-    pub repositories: SelectableList<Repository>,
-    /// Runners list for current repository.
-    pub runners: SelectableList<EnrichedRunner>,
-    /// Workflow runs list.
+    /// Projects (repositories) with runners.
+    pub projects: SelectableList<Project>,
+    /// Runners list for current project (unified type).
+    pub runners: SelectableList<Runner>,
+    /// Workflow runs list (still GitHub-specific for hybrid approach).
     pub runs: SelectableList<WorkflowRun>,
-    /// Jobs list for current run (raw jobs before grouping).
-    pub jobs: SelectableList<Job>,
+    /// Jobs list for current run (still GitHub-specific for hybrid approach).
+    pub jobs: SelectableList<crate::github::Job>,
     /// Grouped jobs with attempts.
     pub job_groups: Vec<JobGroup>,
     /// Flattened job list items for display.
@@ -168,7 +204,7 @@ impl Default for RunnersTabState {
     fn default() -> Self {
         Self {
             nav: RunnersNavStack::default(),
-            repositories: SelectableList::new(),
+            projects: SelectableList::new(),
             runners: SelectableList::new(),
             runs: SelectableList::new(),
             jobs: SelectableList::new(),
@@ -194,6 +230,12 @@ impl RunnersTabState {
     /// Get the current view level.
     pub fn current_view(&self) -> &RunnersViewLevel {
         self.nav.current()
+    }
+
+    /// Get the platform of the currently selected project, if any.
+    /// Used for platform-aware labels in breadcrumbs and titles.
+    pub fn current_platform(&self) -> Option<Platform> {
+        self.projects.selected_item().map(|p| p.platform)
     }
 
     /// Navigate back (Escape key).
@@ -232,7 +274,7 @@ impl RunnersTabState {
                     self.log_selection_anchor = 0;
                     self.log_selection_cursor = 0;
                 }
-                RunnersViewLevel::Repositories => {}
+                RunnersViewLevel::Projects => {}
             }
         }
         popped
@@ -241,7 +283,7 @@ impl RunnersTabState {
     /// Handle up arrow key.
     pub fn select_prev(&mut self) {
         match self.nav.current() {
-            RunnersViewLevel::Repositories => self.repositories.select_prev(),
+            RunnersViewLevel::Projects => self.projects.select_prev(),
             RunnersViewLevel::Runners { .. } => self.runners.select_prev(),
             RunnersViewLevel::Runs { .. } => self.runs.select_prev(),
             RunnersViewLevel::Jobs { .. } => self.jobs.select_prev(),
@@ -254,7 +296,7 @@ impl RunnersTabState {
     /// Handle down arrow key.
     pub fn select_next(&mut self) {
         match self.nav.current() {
-            RunnersViewLevel::Repositories => self.repositories.select_next(),
+            RunnersViewLevel::Projects => self.projects.select_next(),
             RunnersViewLevel::Runners { .. } => self.runners.select_next(),
             RunnersViewLevel::Runs { .. } => self.runs.select_next(),
             RunnersViewLevel::Jobs { .. } => self.jobs.select_next(),
@@ -314,7 +356,7 @@ impl RunnersTabState {
     /// Clear current list data (for refresh).
     pub fn clear_current(&mut self) {
         match self.nav.current() {
-            RunnersViewLevel::Repositories => self.repositories = SelectableList::new(),
+            RunnersViewLevel::Projects => self.projects = SelectableList::new(),
             RunnersViewLevel::Runners { .. } => self.runners = SelectableList::new(),
             RunnersViewLevel::Runs { .. } => self.runs = SelectableList::new(),
             RunnersViewLevel::Jobs { .. } => {

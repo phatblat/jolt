@@ -45,16 +45,23 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             breadcrumb::draw_breadcrumb(frame, &breadcrumbs, chunks[1], timestamp, current_branch);
         }
         Tab::Runners => {
-            let breadcrumbs = app.runners.nav.breadcrumbs();
+            let platform = app.runners.current_platform();
+            let breadcrumbs = app.runners.nav.breadcrumbs_for_platform(platform);
             // Get timestamp from the current view's data
             let timestamp = match app.runners.nav.current() {
-                RunnersViewLevel::Repositories => app.runners.repositories.last_updated,
+                RunnersViewLevel::Projects => app.runners.projects.last_updated,
                 RunnersViewLevel::Runners { .. } => app.runners.runners.last_updated,
                 RunnersViewLevel::Runs { .. } => app.runners.runs.last_updated,
                 RunnersViewLevel::Jobs { .. } => app.runners.jobs.last_updated,
                 RunnersViewLevel::Logs { .. } => None, // Logs don't use SelectableList
             };
-            breadcrumb::draw_runners_breadcrumb(frame, &breadcrumbs, chunks[1], timestamp);
+            breadcrumb::draw_runners_breadcrumb_with_platform(
+                frame,
+                &breadcrumbs,
+                chunks[1],
+                timestamp,
+                platform,
+            );
         }
         Tab::Analyze | Tab::Sync => {
             let block = Block::default()
@@ -99,24 +106,19 @@ fn draw_content(frame: &mut Frame, app: &mut App, area: Rect) {
 /// Draw the Runners tab with navigation hierarchy.
 fn draw_runners_tab(frame: &mut Frame, app: &mut App, area: Rect) {
     match app.runners.nav.current().clone() {
-        RunnersViewLevel::Repositories => {
-            list::render_runner_repositories_list(
-                frame,
-                &mut app.runners.repositories,
-                &app.favorite_repos,
-                area,
-            );
+        RunnersViewLevel::Projects => {
+            list::render_projects_list(frame, &mut app.runners.projects, &app.favorite_repos, area);
         }
         RunnersViewLevel::Runners {
-            ref owner,
-            ref repo,
+            ref org_id,
+            ref project_id,
         } => {
-            list::render_runners_list(
+            list::render_unified_runners_list(
                 frame,
                 &mut app.runners.runners,
                 &app.favorite_runners,
-                owner,
-                repo,
+                org_id,
+                project_id,
                 area,
             );
         }
@@ -184,7 +186,7 @@ fn draw_runners_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
                         RunStatus::Queued | RunStatus::Waiting | RunStatus::Pending
                     ),
                     matches!(job_status, RunStatus::InProgress),
-                    Some(*job_id),
+                    job_id.parse::<u64>().ok(),
                 ),
                 _ => (false, false, false, None),
             };
@@ -299,7 +301,9 @@ fn draw_runners_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
             // Get session lines for decoration
             let session_lines = match app.runners.nav.current() {
                 RunnersViewLevel::Logs { job_id, run_id, .. } => {
-                    app.analyze.get_session_lines(*job_id, *run_id)
+                    let jid = job_id.parse::<u64>().unwrap_or(0);
+                    let rid = run_id.parse::<u64>().unwrap_or(0);
+                    app.analyze.get_session_lines(jid, rid)
                 }
                 _ => Vec::new(),
             };
