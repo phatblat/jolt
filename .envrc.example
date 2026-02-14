@@ -1,0 +1,7 @@
+#!/bin/env zsh
+
+export GITHUB_TOKEN=
+
+export HARNESS_API_KEY=
+export HARNESS_ACCOUNT_ID=
+export HARNESS_BASE_URL=

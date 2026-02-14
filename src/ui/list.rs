@@ -7,8 +7,8 @@ use chrono::{DateTime, Utc};
 use ratatui::{prelude::*, widgets::*};
 
 use crate::github::{
-    EnrichedRunner, Job, JobGroup, JobListItem, Repository, RunConclusion, RunStatus, RunnerStatus,
-    Workflow, WorkflowRun,
+    EnrichedRunner, Job, JobGroup, JobListItem, RunConclusion, RunStatus, RunnerStatus, Workflow,
+    WorkflowRun,
 };
 use crate::state::{LoadingState, SelectableList};
 use crate::types::{self, OrgType, Organization, Platform, Project};
@@ -208,80 +208,6 @@ pub fn render_workflow_projects_list(
 
                 let list_widget = List::new(items)
                     .block(Block::default().borders(Borders::ALL).title(" Projects "))
-                    .highlight_style(
-                        Style::default()
-                            .bg(Color::DarkGray)
-                            .add_modifier(Modifier::BOLD),
-                    )
-                    .highlight_symbol("> ");
-
-                frame.render_stateful_widget(list_widget, area, &mut list.list_state);
-            }
-        }
-    }
-}
-
-/// Render repositories list for Runners tab (shows owner/repo).
-/// Kept for Workflows tab migration reference.
-#[allow(dead_code)]
-pub fn render_runner_repositories_list(
-    frame: &mut Frame,
-    list: &mut SelectableList<Repository>,
-    favorites: &HashSet<String>,
-    area: Rect,
-) {
-    match &list.data {
-        LoadingState::Idle => render_empty(frame, area, "Press Enter to load"),
-        LoadingState::Loading => render_loading(frame, area, "Loading repositories"),
-        LoadingState::Error(e) => render_error(frame, area, e),
-        LoadingState::Loaded(data) => {
-            if data.is_empty() {
-                render_empty(frame, area, "No repositories found");
-            } else {
-                // Sort: favorites first, then by name
-                let mut sorted: Vec<_> = data.items.iter().collect();
-                sorted.sort_by(|a, b| {
-                    let a_key = format!("{}/{}", a.owner.login, a.name);
-                    let b_key = format!("{}/{}", b.owner.login, b.name);
-                    let a_fav = favorites.contains(&a_key);
-                    let b_fav = favorites.contains(&b_key);
-                    match (a_fav, b_fav) {
-                        (true, false) => std::cmp::Ordering::Less,
-                        (false, true) => std::cmp::Ordering::Greater,
-                        _ => a_key.cmp(&b_key),
-                    }
-                });
-
-                let items: Vec<ListItem> = sorted
-                    .iter()
-                    .map(|repo| {
-                        let key = format!("{}/{}", repo.owner.login, repo.name);
-                        let is_fav = favorites.contains(&key);
-                        let star = if is_fav { "⭐ " } else { "" };
-                        let visibility = if repo.private { "🔒" } else { "🌐" };
-                        let updated = format_relative_time(&repo.updated_at);
-                        ListItem::new(Line::from(vec![
-                            platform_badge::render_badge(Platform::GitHub),
-                            Span::raw(" "),
-                            Span::raw(format!("{star}{visibility} ")),
-                            Span::styled(
-                                format!("{}/{}", repo.owner.login, repo.name),
-                                Style::default().fg(Color::Cyan),
-                            ),
-                            Span::styled(
-                                format!("  {updated}"),
-                                Style::default().fg(Color::DarkGray),
-                            ),
-                        ]))
-                    })
-                    .collect();
-
-                let list_widget = List::new(items)
-                    .block(
-                        Block::default()
-                            .borders(Borders::ALL)
-                            .title(" Repositories "),
-                    )
                     .highlight_style(
                         Style::default()
                             .bg(Color::DarkGray)
