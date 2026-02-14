@@ -6,9 +6,7 @@ use std::collections::HashSet;
 use chrono::{DateTime, Utc};
 use ratatui::{prelude::*, widgets::*};
 
-use crate::github::{
-    Job, JobGroup, JobListItem, RunConclusion, RunStatus, Workflow, WorkflowRun,
-};
+use crate::github::{Job, JobGroup, JobListItem, RunConclusion, RunStatus, Workflow, WorkflowRun};
 use crate::state::{LoadingState, SelectableList};
 use crate::types::{self, OrgType, Organization, Platform, Project};
 use crate::ui::platform_badge;
