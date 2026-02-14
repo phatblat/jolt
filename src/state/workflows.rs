@@ -3,7 +3,8 @@
 
 use ratatui::widgets::ListState;
 
-use crate::github::{Job, JobGroup, JobListItem, Owner, Repository, Workflow, WorkflowRun};
+use crate::github::{Job, JobGroup, JobListItem, Workflow, WorkflowRun};
+use crate::types::{Organization, Platform, Project};
 
 use super::navigation::{NavigationStack, ViewLevel};
 
@@ -207,11 +208,11 @@ impl<T> SelectableList<T> {
 pub struct WorkflowsTabState {
     /// Navigation stack for breadcrumb trail.
     pub nav: NavigationStack,
-    /// Owners list (user + orgs).
-    pub owners: SelectableList<Owner>,
-    /// Repositories list for current owner.
-    pub repositories: SelectableList<Repository>,
-    /// Workflows list for current repository.
+    /// Organizations list (user + orgs).
+    pub organizations: SelectableList<Organization>,
+    /// Projects list for current organization.
+    pub projects: SelectableList<Project>,
+    /// Workflows list for current project.
     pub workflows: SelectableList<Workflow>,
     /// Workflow runs list for current workflow.
     pub runs: SelectableList<WorkflowRun>,
@@ -247,8 +248,8 @@ impl Default for WorkflowsTabState {
     fn default() -> Self {
         Self {
             nav: NavigationStack::default(),
-            owners: SelectableList::new(),
-            repositories: SelectableList::new(),
+            organizations: SelectableList::new(),
+            projects: SelectableList::new(),
             workflows: SelectableList::new(),
             runs: SelectableList::new(),
             jobs: SelectableList::new(),
@@ -278,6 +279,12 @@ impl WorkflowsTabState {
         self.nav.current()
     }
 
+    /// Get the platform of the currently selected organization, if any.
+    /// Used for platform-aware labels in breadcrumbs and titles.
+    pub fn current_platform(&self) -> Option<Platform> {
+        self.organizations.selected_item().map(|o| o.platform)
+    }
+
     /// Navigate back (Escape key).
     /// Clears all child list data so fresh data loads when drilling down again.
     pub fn go_back(&mut self) -> bool {
@@ -287,8 +294,8 @@ impl WorkflowsTabState {
         if popped {
             // Clear all lists below the level we came from
             match current {
-                ViewLevel::Repositories { .. } => {
-                    self.repositories = SelectableList::new();
+                ViewLevel::Projects { .. } => {
+                    self.projects = SelectableList::new();
                     self.workflows = SelectableList::new();
                     self.runs = SelectableList::new();
                     self.jobs = SelectableList::new();
@@ -324,7 +331,7 @@ impl WorkflowsTabState {
                     self.log_selection_anchor = 0;
                     self.log_selection_cursor = 0;
                 }
-                ViewLevel::Owners => {}
+                ViewLevel::Organizations => {}
             }
         }
         popped
@@ -333,8 +340,8 @@ impl WorkflowsTabState {
     /// Handle up arrow key.
     pub fn select_prev(&mut self) {
         match self.nav.current() {
-            ViewLevel::Owners => self.owners.select_prev(),
-            ViewLevel::Repositories { .. } => self.repositories.select_prev(),
+            ViewLevel::Organizations => self.organizations.select_prev(),
+            ViewLevel::Projects { .. } => self.projects.select_prev(),
             ViewLevel::Workflows { .. } => self.workflows.select_prev(),
             ViewLevel::Runs { .. } => self.runs.select_prev(),
             ViewLevel::Jobs { .. } => self.jobs.select_prev(),
@@ -347,8 +354,8 @@ impl WorkflowsTabState {
     /// Handle down arrow key.
     pub fn select_next(&mut self) {
         match self.nav.current() {
-            ViewLevel::Owners => self.owners.select_next(),
-            ViewLevel::Repositories { .. } => self.repositories.select_next(),
+            ViewLevel::Organizations => self.organizations.select_next(),
+            ViewLevel::Projects { .. } => self.projects.select_next(),
             ViewLevel::Workflows { .. } => self.workflows.select_next(),
             ViewLevel::Runs { .. } => self.runs.select_next(),
             ViewLevel::Jobs { .. } => self.jobs.select_next(),
@@ -408,8 +415,8 @@ impl WorkflowsTabState {
     /// Clear current list data (for refresh).
     pub fn clear_current(&mut self) {
         match self.nav.current() {
-            ViewLevel::Owners => self.owners = SelectableList::new(),
-            ViewLevel::Repositories { .. } => self.repositories = SelectableList::new(),
+            ViewLevel::Organizations => self.organizations = SelectableList::new(),
+            ViewLevel::Projects { .. } => self.projects = SelectableList::new(),
             ViewLevel::Workflows { .. } => self.workflows = SelectableList::new(),
             ViewLevel::Runs { .. } => self.runs = SelectableList::new(),
             ViewLevel::Jobs { .. } => {

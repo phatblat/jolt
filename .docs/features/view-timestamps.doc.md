@@ -7,7 +7,7 @@ Displays last data load timestamps in the breadcrumb area for Workflows and Runn
 Users see an ISO 8601 formatted timestamp (YYYY-MM-DD HH:MM:SS ±HHMM) in dark gray text on the right side of the breadcrumb line. The timestamp updates whenever data is loaded at that navigation level. For example, when viewing the list of workflows for a repository, the timestamp shows when that workflow list was last fetched. When drilling down to runs, the timestamp updates to show when that runs list was loaded.
 
 ## Data Flow
-1. User navigates to a view level (e.g., owners, repositories, workflows, runs, jobs)
+1. User navigates to a view level (e.g., organizations, projects, workflows, runs, jobs)
 2. App loads data from cache or GitHub API
 3. `SelectableList::set_loaded()` is called with the data
 4. Timestamp field `last_updated` is set to current UTC time
@@ -54,8 +54,8 @@ pub fn set_loaded(&mut self, items: Vec<T>, total_count: u64) {
 
 // In ui/mod.rs
 let timestamp = match app.workflows.nav.current() {
-    ViewLevel::Owners => app.workflows.owners.last_updated,
-    ViewLevel::Repositories { .. } => app.workflows.repositories.last_updated,
+    ViewLevel::Organizations => app.workflows.organizations.last_updated,
+    ViewLevel::Projects { .. } => app.workflows.projects.last_updated,
     ViewLevel::Workflows { .. } => app.workflows.workflows.last_updated,
     ViewLevel::Runs { .. } => app.workflows.runs.last_updated,
     ViewLevel::Jobs { .. } => app.workflows.jobs.last_updated,

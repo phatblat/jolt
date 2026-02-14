@@ -1064,8 +1064,8 @@ impl App {
     fn save_workflows_to_analyze(&mut self) {
         // Extract context from current view level
         let (
-            owner,
-            repo,
+            org_id,
+            project_id,
             workflow_id,
             workflow_name,
             run_id,
@@ -1076,8 +1076,8 @@ impl App {
             job_conclusion,
         ) = match self.workflows.nav.current() {
             ViewLevel::Logs {
-                owner,
-                repo,
+                org_id,
+                project_id,
                 workflow_id,
                 run_id,
                 job_id,
@@ -1088,8 +1088,8 @@ impl App {
                 // Get run_number and workflow_name from navigation stack
                 let (run_number, workflow_name) = self.get_workflows_run_context();
                 (
-                    owner.clone(),
-                    repo.clone(),
+                    org_id.clone(),
+                    project_id.clone(),
                     Some(*workflow_id),
                     workflow_name,
                     *run_id,
@@ -1141,8 +1141,8 @@ impl App {
         // Build navigation context
         let nav_context = NavigationContext {
             source_tab: SourceTab::Workflows,
-            owner: owner.clone(),
-            repo: repo.clone(),
+            owner: org_id.clone(),
+            repo: project_id.clone(),
             workflow_id,
             workflow_name,
             run_id,
@@ -1158,7 +1158,7 @@ impl App {
 
         // Build GitHub URL
         let github_url =
-            format!("https://github.com/{owner}/{repo}/actions/runs/{run_id}/job/{job_id}");
+            format!("https://github.com/{org_id}/{project_id}/actions/runs/{run_id}/job/{job_id}");
 
         // Create and add session
         let session = AnalysisSession::new(
@@ -1462,30 +1462,30 @@ impl App {
         let workflow_name = ctx.workflow_name.clone().unwrap_or_default();
 
         // Reset workflows state and build nav stack
-        self.workflows.nav = NavigationStack::new(ViewLevel::Owners);
-        self.workflows.nav.push(ViewLevel::Repositories {
-            owner: ctx.owner.clone(),
+        self.workflows.nav = NavigationStack::new(ViewLevel::Organizations);
+        self.workflows.nav.push(ViewLevel::Projects {
+            org_id: ctx.owner.clone(),
         });
         self.workflows.nav.push(ViewLevel::Workflows {
-            owner: ctx.owner.clone(),
-            repo: ctx.repo.clone(),
+            org_id: ctx.owner.clone(),
+            project_id: ctx.repo.clone(),
         });
         self.workflows.nav.push(ViewLevel::Runs {
-            owner: ctx.owner.clone(),
-            repo: ctx.repo.clone(),
+            org_id: ctx.owner.clone(),
+            project_id: ctx.repo.clone(),
             workflow_id,
             workflow_name,
         });
         self.workflows.nav.push(ViewLevel::Jobs {
-            owner: ctx.owner.clone(),
-            repo: ctx.repo.clone(),
+            org_id: ctx.owner.clone(),
+            project_id: ctx.repo.clone(),
             workflow_id,
             run_id: ctx.run_id,
             run_number: ctx.run_number,
         });
         self.workflows.nav.push(ViewLevel::Logs {
-            owner: ctx.owner.clone(),
-            repo: ctx.repo.clone(),
+            org_id: ctx.owner.clone(),
+            project_id: ctx.repo.clone(),
             workflow_id,
             run_id: ctx.run_id,
             job_id: ctx.job_id,
@@ -1567,28 +1567,28 @@ impl App {
     /// Toggle favorite in Workflows tab.
     fn toggle_workflows_favorite(&mut self) {
         match self.workflows.nav.current().clone() {
-            ViewLevel::Owners => {
+            ViewLevel::Organizations => {
                 // Get selected index and sort data the same way as rendering
-                let index = match self.workflows.owners.selected() {
+                let index = match self.workflows.organizations.selected() {
                     Some(i) => i,
                     None => return,
                 };
-                let data = match self.workflows.owners.data.data() {
+                let data = match self.workflows.organizations.data.data() {
                     Some(d) => d,
                     None => return,
                 };
                 let mut sorted: Vec<_> = data.items.iter().collect();
                 sorted.sort_by(|a, b| {
-                    let a_fav = self.favorite_owners.contains(&a.login);
-                    let b_fav = self.favorite_owners.contains(&b.login);
+                    let a_fav = self.favorite_owners.contains(&a.id);
+                    let b_fav = self.favorite_owners.contains(&b.id);
                     match (a_fav, b_fav) {
                         (true, false) => std::cmp::Ordering::Less,
                         (false, true) => std::cmp::Ordering::Greater,
-                        _ => a.login.cmp(&b.login),
+                        _ => a.id.cmp(&b.id),
                     }
                 });
-                if let Some(owner) = sorted.get(index) {
-                    let key = owner.login.clone();
+                if let Some(org) = sorted.get(index) {
+                    let key = org.id.clone();
                     if self.favorite_owners.contains(&key) {
                         self.favorite_owners.remove(&key);
                     } else {
@@ -1596,20 +1596,20 @@ impl App {
                     }
                 }
             }
-            ViewLevel::Repositories { ref owner } => {
-                let index = match self.workflows.repositories.selected() {
+            ViewLevel::Projects { ref org_id } => {
+                let index = match self.workflows.projects.selected() {
                     Some(i) => i,
                     None => return,
                 };
-                let data = match self.workflows.repositories.data.data() {
+                let data = match self.workflows.projects.data.data() {
                     Some(d) => d,
                     None => return,
                 };
                 let mut sorted: Vec<_> = data.items.iter().collect();
-                let owner = owner.clone();
+                let org_id = org_id.clone();
                 sorted.sort_by(|a, b| {
-                    let a_key = format!("{}/{}", owner, a.name);
-                    let b_key = format!("{}/{}", owner, b.name);
+                    let a_key = format!("{}/{}", org_id, a.name);
+                    let b_key = format!("{}/{}", org_id, b.name);
                     let a_fav = self.favorite_repos.contains(&a_key);
                     let b_fav = self.favorite_repos.contains(&b_key);
                     match (a_fav, b_fav) {
@@ -1618,8 +1618,8 @@ impl App {
                         _ => a.name.cmp(&b.name),
                     }
                 });
-                if let Some(repo) = sorted.get(index) {
-                    let key = format!("{}/{}", owner, repo.name);
+                if let Some(project) = sorted.get(index) {
+                    let key = format!("{}/{}", org_id, project.name);
                     if self.favorite_repos.contains(&key) {
                         self.favorite_repos.remove(&key);
                     } else {
@@ -1628,8 +1628,8 @@ impl App {
                 }
             }
             ViewLevel::Workflows {
-                ref owner,
-                ref repo,
+                ref org_id,
+                ref project_id,
             } => {
                 let index = match self.workflows.workflows.selected() {
                     Some(i) => i,
@@ -1640,11 +1640,11 @@ impl App {
                     None => return,
                 };
                 let mut sorted: Vec<_> = data.items.iter().collect();
-                let owner = owner.clone();
-                let repo = repo.clone();
+                let org_id = org_id.clone();
+                let project_id = project_id.clone();
                 sorted.sort_by(|a, b| {
-                    let a_key = format!("{}/{}/{}", owner, repo, a.id);
-                    let b_key = format!("{}/{}/{}", owner, repo, b.id);
+                    let a_key = format!("{}/{}/{}", org_id, project_id, a.id);
+                    let b_key = format!("{}/{}/{}", org_id, project_id, b.id);
                     let a_fav = self.favorite_workflows.contains(&a_key);
                     let b_fav = self.favorite_workflows.contains(&b_key);
                     match (a_fav, b_fav) {
@@ -1654,7 +1654,7 @@ impl App {
                     }
                 });
                 if let Some(workflow) = sorted.get(index) {
-                    let key = format!("{}/{}/{}", owner, repo, workflow.id);
+                    let key = format!("{}/{}/{}", org_id, project_id, workflow.id);
                     if self.favorite_workflows.contains(&key) {
                         self.favorite_workflows.remove(&key);
                     } else {
@@ -1741,31 +1741,31 @@ impl App {
     /// Get GitHub URL for current Workflows tab view.
     fn get_workflows_github_url(&self) -> Option<String> {
         match self.workflows.nav.current().clone() {
-            ViewLevel::Owners => {
-                let index = self.workflows.owners.selected()?;
-                let data = self.workflows.owners.data.data()?;
+            ViewLevel::Organizations => {
+                let index = self.workflows.organizations.selected()?;
+                let data = self.workflows.organizations.data.data()?;
                 let mut sorted: Vec<_> = data.items.iter().collect();
                 sorted.sort_by(|a, b| {
-                    let a_fav = self.favorite_owners.contains(&a.login);
-                    let b_fav = self.favorite_owners.contains(&b.login);
+                    let a_fav = self.favorite_owners.contains(&a.id);
+                    let b_fav = self.favorite_owners.contains(&b.id);
                     match (a_fav, b_fav) {
                         (true, false) => std::cmp::Ordering::Less,
                         (false, true) => std::cmp::Ordering::Greater,
-                        _ => a.login.cmp(&b.login),
+                        _ => a.id.cmp(&b.id),
                     }
                 });
                 sorted
                     .get(index)
-                    .map(|owner| format!("https://github.com/{}", owner.login))
+                    .map(|org| format!("https://github.com/{}", org.id))
             }
-            ViewLevel::Repositories { ref owner } => {
-                let index = self.workflows.repositories.selected()?;
-                let data = self.workflows.repositories.data.data()?;
+            ViewLevel::Projects { ref org_id } => {
+                let index = self.workflows.projects.selected()?;
+                let data = self.workflows.projects.data.data()?;
                 let mut sorted: Vec<_> = data.items.iter().collect();
-                let owner = owner.clone();
+                let org_id = org_id.clone();
                 sorted.sort_by(|a, b| {
-                    let a_key = format!("{}/{}", owner, a.name);
-                    let b_key = format!("{}/{}", owner, b.name);
+                    let a_key = format!("{}/{}", org_id, a.name);
+                    let b_key = format!("{}/{}", org_id, b.name);
                     let a_fav = self.favorite_repos.contains(&a_key);
                     let b_fav = self.favorite_repos.contains(&b_key);
                     match (a_fav, b_fav) {
@@ -1776,20 +1776,20 @@ impl App {
                 });
                 sorted
                     .get(index)
-                    .map(|repo| format!("https://github.com/{}/{}", owner, repo.name))
+                    .map(|project| format!("https://github.com/{}/{}", org_id, project.name))
             }
             ViewLevel::Workflows {
-                ref owner,
-                ref repo,
+                ref org_id,
+                ref project_id,
             } => {
                 let index = self.workflows.workflows.selected()?;
                 let data = self.workflows.workflows.data.data()?;
                 let mut sorted: Vec<_> = data.items.iter().collect();
-                let owner = owner.clone();
-                let repo = repo.clone();
+                let org_id = org_id.clone();
+                let project_id = project_id.clone();
                 sorted.sort_by(|a, b| {
-                    let a_key = format!("{}/{}/{}", owner, repo, a.id);
-                    let b_key = format!("{}/{}/{}", owner, repo, b.id);
+                    let a_key = format!("{}/{}/{}", org_id, project_id, a.id);
+                    let b_key = format!("{}/{}/{}", org_id, project_id, b.id);
                     let a_fav = self.favorite_workflows.contains(&a_key);
                     let b_fav = self.favorite_workflows.contains(&b_key);
                     match (a_fav, b_fav) {
@@ -1801,21 +1801,23 @@ impl App {
                 sorted.get(index).map(|workflow| {
                     format!(
                         "https://github.com/{}/{}/actions/workflows/{}",
-                        owner,
-                        repo,
+                        org_id,
+                        project_id,
                         workflow.path.rsplit('/').next().unwrap_or(&workflow.path)
                     )
                 })
             }
-            ViewLevel::Runs { owner, repo, .. } => self.workflows.runs.selected_item().map(|run| {
+            ViewLevel::Runs {
+                org_id, project_id, ..
+            } => self.workflows.runs.selected_item().map(|run| {
                 format!(
                     "https://github.com/{}/{}/actions/runs/{}",
-                    owner, repo, run.id
+                    org_id, project_id, run.id
                 )
             }),
             ViewLevel::Jobs {
-                owner,
-                repo,
+                org_id,
+                project_id,
                 run_id,
                 ..
             } => {
@@ -1825,7 +1827,7 @@ impl App {
                         let job = list_item.get_job(&self.workflows.job_groups);
                         Some(format!(
                             "https://github.com/{}/{}/actions/runs/{}/job/{}",
-                            owner, repo, run_id, job.id
+                            org_id, project_id, run_id, job.id
                         ))
                     } else {
                         None
@@ -1835,13 +1837,13 @@ impl App {
                 }
             }
             ViewLevel::Logs {
-                owner,
-                repo,
+                org_id,
+                project_id,
                 run_id,
                 job_id,
                 ..
             } => Some(format!(
-                "https://github.com/{owner}/{repo}/actions/runs/{run_id}/job/{job_id}"
+                "https://github.com/{org_id}/{project_id}/actions/runs/{run_id}/job/{job_id}"
             )),
         }
     }
@@ -1929,43 +1931,43 @@ impl App {
         // Get the next navigation level based on current selection
         // Note: For views with favorites, we must sort to match the displayed order
         let next_level = match self.workflows.nav.current().clone() {
-            ViewLevel::Owners => {
-                let index = match self.workflows.owners.selected() {
+            ViewLevel::Organizations => {
+                let index = match self.workflows.organizations.selected() {
                     Some(i) => i,
                     None => return,
                 };
-                let data = match self.workflows.owners.data.data() {
+                let data = match self.workflows.organizations.data.data() {
                     Some(d) => d,
                     None => return,
                 };
                 let mut sorted: Vec<_> = data.items.iter().collect();
                 sorted.sort_by(|a, b| {
-                    let a_fav = self.favorite_owners.contains(&a.login);
-                    let b_fav = self.favorite_owners.contains(&b.login);
+                    let a_fav = self.favorite_owners.contains(&a.id);
+                    let b_fav = self.favorite_owners.contains(&b.id);
                     match (a_fav, b_fav) {
                         (true, false) => std::cmp::Ordering::Less,
                         (false, true) => std::cmp::Ordering::Greater,
-                        _ => a.login.cmp(&b.login),
+                        _ => a.id.cmp(&b.id),
                     }
                 });
-                sorted.get(index).map(|owner| ViewLevel::Repositories {
-                    owner: owner.login.clone(),
+                sorted.get(index).map(|org| ViewLevel::Projects {
+                    org_id: org.id.clone(),
                 })
             }
-            ViewLevel::Repositories { ref owner } => {
-                let index = match self.workflows.repositories.selected() {
+            ViewLevel::Projects { ref org_id } => {
+                let index = match self.workflows.projects.selected() {
                     Some(i) => i,
                     None => return,
                 };
-                let data = match self.workflows.repositories.data.data() {
+                let data = match self.workflows.projects.data.data() {
                     Some(d) => d,
                     None => return,
                 };
                 let mut sorted: Vec<_> = data.items.iter().collect();
-                let owner = owner.clone();
+                let org_id = org_id.clone();
                 sorted.sort_by(|a, b| {
-                    let a_key = format!("{}/{}", owner, a.name);
-                    let b_key = format!("{}/{}", owner, b.name);
+                    let a_key = format!("{}/{}", org_id, a.name);
+                    let b_key = format!("{}/{}", org_id, b.name);
                     let a_fav = self.favorite_repos.contains(&a_key);
                     let b_fav = self.favorite_repos.contains(&b_key);
                     match (a_fav, b_fav) {
@@ -1974,14 +1976,14 @@ impl App {
                         _ => a.name.cmp(&b.name),
                     }
                 });
-                sorted.get(index).map(|repo| ViewLevel::Workflows {
-                    owner,
-                    repo: repo.name.clone(),
+                sorted.get(index).map(|project| ViewLevel::Workflows {
+                    org_id,
+                    project_id: project.name.clone(),
                 })
             }
             ViewLevel::Workflows {
-                ref owner,
-                ref repo,
+                ref org_id,
+                ref project_id,
             } => {
                 let index = match self.workflows.workflows.selected() {
                     Some(i) => i,
@@ -1992,11 +1994,11 @@ impl App {
                     None => return,
                 };
                 let mut sorted: Vec<_> = data.items.iter().collect();
-                let owner = owner.clone();
-                let repo = repo.clone();
+                let org_id = org_id.clone();
+                let project_id = project_id.clone();
                 sorted.sort_by(|a, b| {
-                    let a_key = format!("{}/{}/{}", owner, repo, a.id);
-                    let b_key = format!("{}/{}/{}", owner, repo, b.id);
+                    let a_key = format!("{}/{}/{}", org_id, project_id, a.id);
+                    let b_key = format!("{}/{}/{}", org_id, project_id, b.id);
                     let a_fav = self.favorite_workflows.contains(&a_key);
                     let b_fav = self.favorite_workflows.contains(&b_key);
                     match (a_fav, b_fav) {
@@ -2006,15 +2008,15 @@ impl App {
                     }
                 });
                 sorted.get(index).map(|workflow| ViewLevel::Runs {
-                    owner,
-                    repo,
+                    org_id,
+                    project_id,
                     workflow_id: workflow.id,
                     workflow_name: workflow.name.clone(),
                 })
             }
             ViewLevel::Runs {
-                owner,
-                repo,
+                org_id,
+                project_id,
                 workflow_id,
                 ..
             } => self
@@ -2022,15 +2024,15 @@ impl App {
                 .runs
                 .selected_item()
                 .map(|run| ViewLevel::Jobs {
-                    owner,
-                    repo,
+                    org_id,
+                    project_id,
                     workflow_id,
                     run_id: run.id,
                     run_number: run.run_number,
                 }),
             ViewLevel::Jobs {
-                owner,
-                repo,
+                org_id,
+                project_id,
                 workflow_id,
                 run_id,
                 ..
@@ -2040,8 +2042,8 @@ impl App {
                     if let Some(list_item) = self.workflows.job_list_items.get(index) {
                         let job = list_item.get_job(&self.workflows.job_groups);
                         Some(ViewLevel::Logs {
-                            owner,
-                            repo,
+                            org_id,
+                            project_id,
                             workflow_id,
                             run_id,
                             job_id: job.id,
@@ -2291,8 +2293,8 @@ impl App {
         let current_view = self.workflows.nav.current().clone();
 
         match current_view {
-            ViewLevel::Owners => {
-                if self.workflows.owners.data.is_loaded() {
+            ViewLevel::Organizations => {
+                if self.workflows.organizations.data.is_loaded() {
                     return;
                 }
                 // Try to load from cache first
@@ -2300,69 +2302,89 @@ impl App {
                     && let Ok(Some(cached)) = cache::read_cached::<Vec<crate::github::Owner>>(&path)
                     && cached.is_valid(cache::DEFAULT_TTL)
                 {
-                    let count = cached.data.len() as u64;
-                    self.workflows.owners.set_loaded(cached.data, count);
+                    let orgs: Vec<_> = cached
+                        .data
+                        .iter()
+                        .map(crate::platform::github::map_owner_to_organization)
+                        .collect();
+                    let count = orgs.len() as u64;
+                    self.workflows.organizations.set_loaded(orgs, count);
                     return;
                 }
                 // No valid cache, fetch from API
-                self.workflows.owners.set_loading();
+                self.workflows.organizations.set_loading();
                 let result = Self::fetch_owners(self.github_client.as_mut().unwrap()).await;
                 match result {
-                    Ok((owners, count)) => {
+                    Ok((owners, _count)) => {
                         if let Some(path) = cache::owners_list_path() {
                             let _ = cache::write_cached(&path, &owners, false);
                         }
-                        self.workflows.owners.set_loaded(owners, count);
+                        let orgs: Vec<_> = owners
+                            .iter()
+                            .map(crate::platform::github::map_owner_to_organization)
+                            .collect();
+                        let count = orgs.len() as u64;
+                        self.workflows.organizations.set_loaded(orgs, count);
                     }
                     Err(e) => {
-                        self.workflows.owners.set_error(e.to_string());
-                        self.log_error(format!("Failed to load owners: {e}"));
+                        self.workflows.organizations.set_error(e.to_string());
+                        self.log_error(format!("Failed to load organizations: {e}"));
                     }
                 }
             }
-            ViewLevel::Repositories { ref owner } => {
-                if self.workflows.repositories.data.is_loaded() {
+            ViewLevel::Projects { ref org_id } => {
+                if self.workflows.projects.data.is_loaded() {
                     return;
                 }
-                let owner = owner.clone();
+                let org_id = org_id.clone();
                 // Try to load from cache first
-                if let Some(path) = cache::repos_list_path(&owner)
+                if let Some(path) = cache::repos_list_path(&org_id)
                     && let Ok(Some(cached)) =
                         cache::read_cached::<Vec<crate::github::Repository>>(&path)
                     && cached.is_valid(cache::DEFAULT_TTL)
                 {
-                    let count = cached.data.len() as u64;
-                    self.workflows.repositories.set_loaded(cached.data, count);
+                    let projects: Vec<_> = cached
+                        .data
+                        .iter()
+                        .map(crate::platform::github::map_repository_to_project)
+                        .collect();
+                    let count = projects.len() as u64;
+                    self.workflows.projects.set_loaded(projects, count);
                     return;
                 }
                 // No valid cache, fetch from API
-                self.workflows.repositories.set_loading();
+                self.workflows.projects.set_loading();
                 let result =
-                    Self::fetch_repositories(self.github_client.as_mut().unwrap(), &owner).await;
+                    Self::fetch_repositories(self.github_client.as_mut().unwrap(), &org_id).await;
                 match result {
-                    Ok((repos, count)) => {
-                        if let Some(path) = cache::repos_list_path(&owner) {
+                    Ok((repos, _count)) => {
+                        if let Some(path) = cache::repos_list_path(&org_id) {
                             let _ = cache::write_cached(&path, &repos, false);
                         }
-                        self.workflows.repositories.set_loaded(repos, count);
+                        let projects: Vec<_> = repos
+                            .iter()
+                            .map(crate::platform::github::map_repository_to_project)
+                            .collect();
+                        let count = projects.len() as u64;
+                        self.workflows.projects.set_loaded(projects, count);
                     }
                     Err(e) => {
-                        self.workflows.repositories.set_error(e.to_string());
-                        self.log_error(format!("Failed to load repositories: {e}"));
+                        self.workflows.projects.set_error(e.to_string());
+                        self.log_error(format!("Failed to load projects: {e}"));
                     }
                 }
             }
             ViewLevel::Workflows {
-                ref owner,
-                ref repo,
+                ref org_id,
+                ref project_id,
             } => {
                 if self.workflows.workflows.data.is_loaded() {
                     return;
                 }
-                let owner = owner.clone();
-                let repo = repo.clone();
+                let org_id = org_id.clone();
+                let project_id = project_id.clone();
                 // Try to load from cache first
-                if let Some(path) = cache::workflows_list_path(&owner, &repo)
+                if let Some(path) = cache::workflows_list_path(&org_id, &project_id)
                     && let Ok(Some(cached)) =
                         cache::read_cached::<Vec<crate::github::Workflow>>(&path)
                     && cached.is_valid(cache::DEFAULT_TTL)
@@ -2377,11 +2399,11 @@ impl App {
                     .github_client
                     .as_mut()
                     .unwrap()
-                    .get_workflows(&owner, &repo, 1, 30)
+                    .get_workflows(&org_id, &project_id, 1, 30)
                     .await;
                 match result {
                     Ok((workflows, count)) => {
-                        if let Some(path) = cache::workflows_list_path(&owner, &repo) {
+                        if let Some(path) = cache::workflows_list_path(&org_id, &project_id) {
                             let _ = cache::write_cached(&path, &workflows, false);
                         }
                         self.workflows.workflows.set_loaded(workflows, count);
@@ -2393,18 +2415,18 @@ impl App {
                 }
             }
             ViewLevel::Runs {
-                ref owner,
-                ref repo,
+                ref org_id,
+                ref project_id,
                 workflow_id,
                 ..
             } => {
                 if self.workflows.runs.data.is_loaded() {
                     return;
                 }
-                let owner = owner.clone();
-                let repo = repo.clone();
+                let org_id = org_id.clone();
+                let project_id = project_id.clone();
                 // Try to load from cache first
-                if let Some(path) = cache::runs_list_path(&owner, &repo, workflow_id)
+                if let Some(path) = cache::runs_list_path(&org_id, &project_id, workflow_id)
                     && let Ok(Some(cached)) =
                         cache::read_cached::<Vec<crate::github::WorkflowRun>>(&path)
                     && cached.is_valid(cache::DEFAULT_TTL)
@@ -2420,11 +2442,19 @@ impl App {
                     .github_client
                     .as_mut()
                     .unwrap()
-                    .get_workflow_runs_for_workflow(&owner, &repo, workflow_id, 1, 30, branch)
+                    .get_workflow_runs_for_workflow(
+                        &org_id,
+                        &project_id,
+                        workflow_id,
+                        1,
+                        30,
+                        branch,
+                    )
                     .await;
                 match result {
                     Ok((runs, count)) => {
-                        if let Some(path) = cache::runs_list_path(&owner, &repo, workflow_id) {
+                        if let Some(path) = cache::runs_list_path(&org_id, &project_id, workflow_id)
+                        {
                             let _ = cache::write_cached(&path, &runs, false);
                         }
                         self.workflows.runs.set_loaded(runs, count);
@@ -2436,8 +2466,8 @@ impl App {
                 }
             }
             ViewLevel::Jobs {
-                ref owner,
-                ref repo,
+                ref org_id,
+                ref project_id,
                 workflow_id,
                 run_id,
                 ..
@@ -2445,16 +2475,15 @@ impl App {
                 if self.workflows.jobs.data.is_loaded() {
                     return;
                 }
-                let owner = owner.clone();
-                let repo = repo.clone();
+                let org_id = org_id.clone();
+                let project_id = project_id.clone();
                 // Try to load from cache first
-                if let Some(path) = cache::jobs_list_path(&owner, &repo, workflow_id, run_id)
+                if let Some(path) = cache::jobs_list_path(&org_id, &project_id, workflow_id, run_id)
                     && let Ok(Some(cached)) = cache::read_cached::<Vec<crate::github::Job>>(&path)
                     && cached.is_valid(cache::DEFAULT_TTL)
                 {
                     let count = cached.data.len() as u64;
                     self.workflows.jobs.set_loaded(cached.data.clone(), count);
-                    // Group jobs by name and create flattened list
                     self.workflows.job_groups = crate::github::JobGroup::group_by_name(cached.data);
                     self.workflows.job_list_items =
                         crate::github::JobListItem::flatten(&self.workflows.job_groups);
@@ -2466,12 +2495,12 @@ impl App {
                     .github_client
                     .as_mut()
                     .unwrap()
-                    .get_jobs(&owner, &repo, run_id, 1, 30)
+                    .get_jobs(&org_id, &project_id, run_id, 1, 30)
                     .await;
                 match result {
                     Ok((jobs, count)) => {
                         if let Some(path) =
-                            cache::jobs_list_path(&owner, &repo, workflow_id, run_id)
+                            cache::jobs_list_path(&org_id, &project_id, workflow_id, run_id)
                         {
                             let _ = cache::write_cached(&path, &jobs, false);
                         }
@@ -2488,8 +2517,8 @@ impl App {
                 }
             }
             ViewLevel::Logs {
-                ref owner,
-                ref repo,
+                ref org_id,
+                ref project_id,
                 workflow_id,
                 run_id,
                 job_id,
@@ -2498,10 +2527,11 @@ impl App {
                 if self.workflows.log_content.is_loaded() {
                     return;
                 }
-                let owner = owner.clone();
-                let repo = repo.clone();
+                let org_id = org_id.clone();
+                let project_id = project_id.clone();
                 // Try to load from cache first (logs are immutable once job completes)
-                if let Some(path) = cache::job_log_path(&owner, &repo, workflow_id, run_id, job_id)
+                if let Some(path) =
+                    cache::job_log_path(&org_id, &project_id, workflow_id, run_id, job_id)
                     && let Ok(Some(logs)) = cache::read_text(&path)
                 {
                     self.workflows.log_content = LoadingState::Loaded(logs);
@@ -2513,12 +2543,12 @@ impl App {
                     .github_client
                     .as_mut()
                     .unwrap()
-                    .get_job_logs(&owner, &repo, job_id)
+                    .get_job_logs(&org_id, &project_id, job_id)
                     .await;
                 match result {
                     Ok(logs) => {
                         if let Some(path) =
-                            cache::job_log_path(&owner, &repo, workflow_id, run_id, job_id)
+                            cache::job_log_path(&org_id, &project_id, workflow_id, run_id, job_id)
                         {
                             let _ = cache::write_text(&path, &logs);
                         }
@@ -2599,6 +2629,8 @@ impl App {
                             platform: crate::types::Platform::GitHub,
                             org_id: r.owner.login.clone(),
                             description: r.description.clone(),
+                            visibility: Some(r.private),
+                            updated_at: Some(r.updated_at),
                         })
                         .collect();
                     let count = projects.len() as u64;
@@ -2626,6 +2658,8 @@ impl App {
                                 platform: crate::types::Platform::GitHub,
                                 org_id: r.owner.login.clone(),
                                 description: r.description.clone(),
+                                visibility: Some(r.private),
+                                updated_at: Some(r.updated_at),
                             })
                             .collect();
                         let count = projects.len() as u64;

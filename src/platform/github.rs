@@ -176,6 +176,8 @@ pub fn map_repository_to_project(repo: &crate::github::Repository) -> Project {
         platform: Platform::GitHub,
         org_id: repo.owner.login.clone(),
         description: repo.description.clone(),
+        visibility: Some(repo.private),
+        updated_at: Some(repo.updated_at),
     }
 }
 
@@ -239,5 +241,7 @@ mod tests {
         assert_eq!(project.platform, Platform::GitHub);
         assert_eq!(project.org_id, "octocat");
         assert_eq!(project.description, Some("A test repo".to_string()));
+        assert_eq!(project.visibility, Some(false));
+        assert!(project.updated_at.is_some());
     }
 }

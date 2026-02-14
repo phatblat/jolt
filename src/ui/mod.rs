@@ -12,6 +12,7 @@ use ratatui::{prelude::*, widgets::*};
 use crate::app::{App, Tab};
 use crate::github::{RunConclusion, RunStatus};
 use crate::state::{AnalyzeViewLevel, ConsoleLevel, LoadingState, RunnersViewLevel, ViewLevel};
+use crate::types::Platform;
 
 /// Main draw function that renders the entire UI.
 pub fn draw(frame: &mut Frame, app: &mut App) {
@@ -31,11 +32,12 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     // Breadcrumb (for Workflows and Runners tabs)
     match app.active_tab {
         Tab::Workflows => {
-            let breadcrumbs = app.workflows.nav.breadcrumbs();
+            let platform = app.workflows.current_platform();
+            let breadcrumbs = app.workflows.nav.breadcrumbs_for_platform(platform);
             // Get timestamp from the current view's data
             let timestamp = match app.workflows.nav.current() {
-                ViewLevel::Owners => app.workflows.owners.last_updated,
-                ViewLevel::Repositories { .. } => app.workflows.repositories.last_updated,
+                ViewLevel::Organizations => app.workflows.organizations.last_updated,
+                ViewLevel::Projects { .. } => app.workflows.projects.last_updated,
                 ViewLevel::Workflows { .. } => app.workflows.workflows.last_updated,
                 ViewLevel::Runs { .. } => app.workflows.runs.last_updated,
                 ViewLevel::Jobs { .. } => app.workflows.jobs.last_updated,
@@ -105,6 +107,7 @@ fn draw_content(frame: &mut Frame, app: &mut App, area: Rect) {
 
 /// Draw the Runners tab with navigation hierarchy.
 fn draw_runners_tab(frame: &mut Frame, app: &mut App, area: Rect) {
+    let platform = app.runners.current_platform().unwrap_or(Platform::GitHub);
     match app.runners.nav.current().clone() {
         RunnersViewLevel::Projects => {
             list::render_projects_list(frame, &mut app.runners.projects, &app.favorite_repos, area);
@@ -123,7 +126,7 @@ fn draw_runners_tab(frame: &mut Frame, app: &mut App, area: Rect) {
             );
         }
         RunnersViewLevel::Runs { .. } => {
-            list::render_runs_list(frame, &mut app.runners.runs, area, "Job Runs");
+            list::render_runs_list(frame, &mut app.runners.runs, platform, area, "Job Runs");
         }
         RunnersViewLevel::Jobs { .. } => {
             list::render_jobs_list(
@@ -131,6 +134,7 @@ fn draw_runners_tab(frame: &mut Frame, app: &mut App, area: Rect) {
                 &mut app.runners.jobs,
                 &app.runners.job_groups,
                 &app.runners.job_list_items,
+                platform,
                 area,
             );
         }
@@ -435,34 +439,47 @@ fn draw_runners_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
 
 /// Draw the Workflows tab with navigation hierarchy.
 fn draw_workflows_tab(frame: &mut Frame, app: &mut App, area: Rect) {
+    let platform = app.workflows.current_platform().unwrap_or(Platform::GitHub);
     match app.workflows.nav.current().clone() {
-        ViewLevel::Owners => {
-            list::render_owners_list(frame, &mut app.workflows.owners, &app.favorite_owners, area);
-        }
-        ViewLevel::Repositories { ref owner } => {
-            list::render_repositories_list(
+        ViewLevel::Organizations => {
+            list::render_organizations_list(
                 frame,
-                &mut app.workflows.repositories,
+                &mut app.workflows.organizations,
+                &app.favorite_owners,
+                area,
+            );
+        }
+        ViewLevel::Projects { ref org_id } => {
+            list::render_workflow_projects_list(
+                frame,
+                &mut app.workflows.projects,
                 &app.favorite_repos,
-                owner,
+                org_id,
                 area,
             );
         }
         ViewLevel::Workflows {
-            ref owner,
-            ref repo,
+            ref org_id,
+            ref project_id,
         } => {
             list::render_workflows_list(
                 frame,
                 &mut app.workflows.workflows,
                 &app.favorite_workflows,
-                owner,
-                repo,
+                org_id,
+                project_id,
+                platform,
                 area,
             );
         }
         ViewLevel::Runs { .. } => {
-            list::render_runs_list(frame, &mut app.workflows.runs, area, "Workflow Runs");
+            list::render_runs_list(
+                frame,
+                &mut app.workflows.runs,
+                platform,
+                area,
+                "Workflow Runs",
+            );
         }
         ViewLevel::Jobs { .. } => {
             list::render_jobs_list(
@@ -470,6 +487,7 @@ fn draw_workflows_tab(frame: &mut Frame, app: &mut App, area: Rect) {
                 &mut app.workflows.jobs,
                 &app.workflows.job_groups,
                 &app.workflows.job_list_items,
+                platform,
                 area,
             );
         }

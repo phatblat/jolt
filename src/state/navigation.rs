@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::github::{RunConclusion, RunStatus};
+use crate::types::Platform;
 
 /// A node in the navigation breadcrumb trail.
 #[derive(Debug, Clone)]
@@ -17,31 +18,47 @@ pub struct BreadcrumbNode {
 /// The current view level in the navigation hierarchy.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ViewLevel {
-    /// Top level: list of owners (users/orgs)
-    Owners,
-    /// Repositories for a specific owner
-    Repositories { owner: String },
-    /// Workflows for a specific repository
-    Workflows { owner: String, repo: String },
+    /// Top level: list of organizations (users/orgs)
+    #[serde(alias = "Owners")]
+    Organizations,
+    /// Projects (repositories) for a specific organization
+    #[serde(alias = "Repositories")]
+    Projects {
+        #[serde(alias = "owner")]
+        org_id: String,
+    },
+    /// Workflows for a specific project
+    Workflows {
+        #[serde(alias = "owner")]
+        org_id: String,
+        #[serde(alias = "repo")]
+        project_id: String,
+    },
     /// Runs for a specific workflow
     Runs {
-        owner: String,
-        repo: String,
+        #[serde(alias = "owner")]
+        org_id: String,
+        #[serde(alias = "repo")]
+        project_id: String,
         workflow_id: u64,
         workflow_name: String,
     },
     /// Jobs for a specific run
     Jobs {
-        owner: String,
-        repo: String,
+        #[serde(alias = "owner")]
+        org_id: String,
+        #[serde(alias = "repo")]
+        project_id: String,
         workflow_id: u64,
         run_id: u64,
         run_number: u64,
     },
     /// Log viewer for a specific job
     Logs {
-        owner: String,
-        repo: String,
+        #[serde(alias = "owner")]
+        org_id: String,
+        #[serde(alias = "repo")]
+        project_id: String,
         workflow_id: u64,
         run_id: u64,
         job_id: u64,
@@ -54,10 +71,27 @@ pub enum ViewLevel {
 impl ViewLevel {
     /// Get the display title for this view level.
     pub fn title(&self) -> String {
+        self.title_for_platform(None)
+    }
+
+    /// Get the display title for this view level with platform-aware labels.
+    pub fn title_for_platform(&self, platform: Option<Platform>) -> String {
         match self {
-            ViewLevel::Owners => "Owners".to_string(),
-            ViewLevel::Repositories { owner } => format!("{owner} / Repositories"),
-            ViewLevel::Workflows { owner, repo } => format!("{owner}/{repo} / Workflows"),
+            ViewLevel::Organizations => match platform {
+                Some(Platform::GitHub) => "Owners".to_string(),
+                _ => "Organizations".to_string(),
+            },
+            ViewLevel::Projects { org_id } => {
+                let label = match platform {
+                    Some(Platform::Harness) => "Projects",
+                    Some(Platform::GitHub) => "Repositories",
+                    None => "Projects",
+                };
+                format!("{org_id} / {label}")
+            }
+            ViewLevel::Workflows {
+                org_id, project_id, ..
+            } => format!("{org_id}/{project_id} / Workflows"),
             ViewLevel::Runs { workflow_name, .. } => format!("{workflow_name} / Runs"),
             ViewLevel::Jobs { run_number, .. } => format!("Run #{run_number} / Jobs"),
             ViewLevel::Logs { job_name, .. } => format!("{job_name} / Logs"),
@@ -66,10 +100,18 @@ impl ViewLevel {
 
     /// Create a breadcrumb node for this view level.
     pub fn to_breadcrumb(&self) -> BreadcrumbNode {
+        self.to_breadcrumb_for_platform(None)
+    }
+
+    /// Create a breadcrumb node for this view level with platform-aware labels.
+    pub fn to_breadcrumb_for_platform(&self, platform: Option<Platform>) -> BreadcrumbNode {
         let label = match self {
-            ViewLevel::Owners => "Owners".to_string(),
-            ViewLevel::Repositories { owner } => owner.clone(),
-            ViewLevel::Workflows { repo, .. } => repo.clone(),
+            ViewLevel::Organizations => match platform {
+                Some(Platform::GitHub) => "Owners".to_string(),
+                _ => "Organizations".to_string(),
+            },
+            ViewLevel::Projects { org_id } => org_id.clone(),
+            ViewLevel::Workflows { project_id, .. } => project_id.clone(),
             ViewLevel::Runs { workflow_name, .. } => workflow_name.clone(),
             ViewLevel::Jobs { run_number, .. } => format!("#{run_number}"),
             ViewLevel::Logs { job_name, .. } => job_name.clone(),
@@ -127,6 +169,14 @@ impl NavigationStack {
             .collect()
     }
 
+    /// Get the breadcrumb trail with platform-aware labels.
+    pub fn breadcrumbs_for_platform(&self, platform: Option<Platform>) -> Vec<BreadcrumbNode> {
+        self.stack
+            .iter()
+            .map(|level| level.to_breadcrumb_for_platform(platform))
+            .collect()
+    }
+
     /// Reset to root level.
     pub fn reset(&mut self) {
         self.stack.truncate(1);
@@ -140,7 +190,7 @@ impl NavigationStack {
 
 impl Default for NavigationStack {
     fn default() -> Self {
-        Self::new(ViewLevel::Owners)
+        Self::new(ViewLevel::Organizations)
     }
 }
 
@@ -155,17 +205,17 @@ mod tests {
         assert_eq!(nav.depth(), 1);
         assert!(!nav.can_go_back());
 
-        // Push repositories level
-        nav.push(ViewLevel::Repositories {
-            owner: "phatblat".to_string(),
+        // Push projects level
+        nav.push(ViewLevel::Projects {
+            org_id: "phatblat".to_string(),
         });
         assert_eq!(nav.depth(), 2);
         assert!(nav.can_go_back());
 
         // Push workflows level
         nav.push(ViewLevel::Workflows {
-            owner: "phatblat".to_string(),
-            repo: "jolt".to_string(),
+            org_id: "phatblat".to_string(),
+            project_id: "jolt".to_string(),
         });
         assert_eq!(nav.depth(), 3);
 
@@ -185,18 +235,30 @@ mod tests {
     #[test]
     fn test_breadcrumbs() {
         let mut nav = NavigationStack::default();
-        nav.push(ViewLevel::Repositories {
-            owner: "phatblat".to_string(),
+        nav.push(ViewLevel::Projects {
+            org_id: "phatblat".to_string(),
         });
         nav.push(ViewLevel::Workflows {
-            owner: "phatblat".to_string(),
-            repo: "jolt".to_string(),
+            org_id: "phatblat".to_string(),
+            project_id: "jolt".to_string(),
         });
 
         let breadcrumbs = nav.breadcrumbs();
         assert_eq!(breadcrumbs.len(), 3);
-        assert_eq!(breadcrumbs[0].label, "Owners");
+        assert_eq!(breadcrumbs[0].label, "Organizations");
         assert_eq!(breadcrumbs[1].label, "phatblat");
         assert_eq!(breadcrumbs[2].label, "jolt");
+    }
+
+    #[test]
+    fn test_breadcrumbs_github_platform() {
+        let mut nav = NavigationStack::default();
+        nav.push(ViewLevel::Projects {
+            org_id: "phatblat".to_string(),
+        });
+
+        let breadcrumbs = nav.breadcrumbs_for_platform(Some(Platform::GitHub));
+        assert_eq!(breadcrumbs[0].label, "Owners");
+        assert_eq!(breadcrumbs[1].label, "phatblat");
     }
 }

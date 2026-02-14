@@ -62,6 +62,12 @@ pub struct Project {
     pub org_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Whether the project is private (true = private, false = public).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visibility: Option<bool>,
+    /// When the project was last updated.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// Workflow or Pipeline.

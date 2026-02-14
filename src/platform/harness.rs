@@ -184,6 +184,8 @@ pub fn map_project(project: &crate::harness::Project) -> Project {
         platform: Platform::Harness,
         org_id: project.org_identifier.clone(),
         description: project.description.clone(),
+        visibility: None,
+        updated_at: None,
     }
 }
 
