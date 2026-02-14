@@ -19,9 +19,7 @@ pub fn render_badge(platform: Platform) -> Span<'static> {
 
     Span::styled(
         text,
-        Style::default()
-            .fg(color)
-            .add_modifier(Modifier::BOLD),
+        Style::default().fg(color).add_modifier(Modifier::BOLD),
     )
 }
 
@@ -61,11 +59,7 @@ pub fn badge_line<'a>(platform: Platform, text: &'a str) -> Line<'a> {
 
 /// Create a styled line with platform badge and custom styling for the text.
 #[allow(dead_code)]
-pub fn badge_line_styled<'a>(
-    platform: Platform,
-    text: &'a str,
-    style: Style,
-) -> Line<'a> {
+pub fn badge_line_styled<'a>(platform: Platform, text: &'a str, style: Style) -> Line<'a> {
     Line::from(vec![
         render_badge(platform),
         Span::raw(" "),
@@ -86,10 +80,7 @@ mod tests {
     #[test]
     fn test_platform_color() {
         assert_eq!(platform_color(Platform::GitHub), Color::Blue);
-        assert_eq!(
-            platform_color(Platform::Harness),
-            Color::Rgb(255, 140, 0)
-        );
+        assert_eq!(platform_color(Platform::Harness), Color::Rgb(255, 140, 0));
     }
 
     #[test]

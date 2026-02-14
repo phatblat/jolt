@@ -13,7 +13,9 @@ use crate::cache;
 use crate::error::JoltError;
 use crate::github::GitHubClient;
 use crate::github::types::RateLimit;
-use crate::platform::{Platform as PlatformTrait, github::GitHubPlatform, harness::HarnessPlatform};
+use crate::platform::{
+    Platform as PlatformTrait, github::GitHubPlatform, harness::HarnessPlatform,
+};
 use crate::state::{
     AnalysisSession, AnalyzeTabState, AnalyzeViewLevel, LoadingState, NavigationContext,
     NavigationStack, RunMetadata, RunnersNavStack, RunnersTabState, RunnersViewLevel, SourceTab,

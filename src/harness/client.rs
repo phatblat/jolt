@@ -7,7 +7,7 @@ use serde::de::DeserializeOwned;
 use super::error::{HarnessError, Result};
 use super::types::{ApiError, ApiResponse};
 
-const DEFAULT_BASE_URL: &str = "https://app.harness.io/gateway/";
+const DEFAULT_BASE_URL: &str = "https://app.harness.io/";
 
 /// Harness API client with authentication.
 #[derive(Debug)]
@@ -196,14 +196,14 @@ mod tests {
     #[test]
     fn test_client_new() {
         let client = HarnessClient::new(
-            "https://app.harness.io/gateway/".to_string(),
+            "https://app.harness.io/".to_string(),
             "test-key".to_string(),
             "test-account".to_string(),
         )
         .unwrap();
 
         assert_eq!(client.account_id(), "test-account");
-        assert_eq!(client.base_url(), "https://app.harness.io/gateway/");
+        assert_eq!(client.base_url(), "https://app.harness.io/");
     }
 
     #[test]

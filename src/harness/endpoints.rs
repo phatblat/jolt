@@ -19,8 +19,8 @@ impl HarnessClient {
             )
             .await?;
 
-        let page: PageResponse<Organization> = self.parse_response(response).await?;
-        Ok(page.content)
+        let page: PageResponse<OrganizationResponse> = self.parse_response(response).await?;
+        Ok(page.content.into_iter().map(|r| r.organization).collect())
     }
 
     /// Get a specific organization by identifier.
@@ -32,7 +32,8 @@ impl HarnessClient {
             )
             .await?;
 
-        self.parse_response(response).await
+        let wrapper: OrganizationResponse = self.parse_response(response).await?;
+        Ok(wrapper.organization)
     }
 
     // ========================================
@@ -51,8 +52,8 @@ impl HarnessClient {
             )
             .await?;
 
-        let page: PageResponse<Project> = self.parse_response(response).await?;
-        Ok(page.content)
+        let page: PageResponse<ProjectResponse> = self.parse_response(response).await?;
+        Ok(page.content.into_iter().map(|r| r.project).collect())
     }
 
     /// Get a specific project by identifier.
@@ -67,7 +68,8 @@ impl HarnessClient {
             )
             .await?;
 
-        self.parse_response(response).await
+        let wrapper: ProjectResponse = self.parse_response(response).await?;
+        Ok(wrapper.project)
     }
 
     // ========================================
@@ -111,11 +113,11 @@ impl HarnessClient {
     // Pipelines
     // ========================================
 
-    /// List pipelines in a project.
+    /// List pipelines in a project (NG API).
     pub async fn list_pipelines(&self, org_id: &str, project_id: &str) -> Result<Vec<Pipeline>> {
         let response = self
             .get_with_params(
-                "pipeline/api/pipelines",
+                "ng/api/pipelines",
                 &[
                     ("accountIdentifier", self.account_id()),
                     ("orgIdentifier", org_id),
