@@ -23,7 +23,7 @@ impl HarnessClient {
     ///
     /// # Arguments
     ///
-    /// * `base_url` - Base URL for Harness API (e.g., "https://app.harness.io/gateway/")
+    /// * `base_url` - Base URL for Harness API (e.g., "https://app.harness.io/")
     /// * `api_key` - Harness API key (Personal Access Token)
     /// * `account_id` - Harness account identifier
     pub fn new(base_url: String, api_key: String, account_id: String) -> Result<Self> {
