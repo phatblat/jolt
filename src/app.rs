@@ -198,20 +198,18 @@ impl App {
         }
 
         // Restore log view state for current job if viewing logs
-        if let ViewLevel::Logs { job_id, .. } = workflows.nav.current() {
-            if let Some(state) = persisted.log_view_states.get(job_id) {
+        if let ViewLevel::Logs { job_id, .. } = workflows.nav.current()
+            && let Some(state) = persisted.log_view_states.get(job_id) {
                 workflows.log_selection_anchor = state.selection_anchor;
                 workflows.log_selection_cursor = state.selection_cursor;
                 workflows.log_scroll_y = state.scroll_y;
             }
-        }
-        if let RunnersViewLevel::Logs { job_id, .. } = runners.nav.current() {
-            if let Some(state) = persisted.log_view_states.get(job_id) {
+        if let RunnersViewLevel::Logs { job_id, .. } = runners.nav.current()
+            && let Some(state) = persisted.log_view_states.get(job_id) {
                 runners.log_selection_anchor = state.selection_anchor;
                 runners.log_selection_cursor = state.selection_cursor;
                 runners.log_scroll_y = state.scroll_y;
             }
-        }
 
         Self {
             active_tab: persisted.active_tab,
@@ -2159,16 +2157,13 @@ impl App {
                     return;
                 }
                 // Try to load from cache first
-                if let Some(path) = cache::owners_list_path() {
-                    if let Ok(Some(cached)) = cache::read_cached::<Vec<crate::github::Owner>>(&path)
-                    {
-                        if cached.is_valid(cache::DEFAULT_TTL) {
+                if let Some(path) = cache::owners_list_path()
+                    && let Ok(Some(cached)) = cache::read_cached::<Vec<crate::github::Owner>>(&path)
+                        && cached.is_valid(cache::DEFAULT_TTL) {
                             let count = cached.data.len() as u64;
                             self.workflows.owners.set_loaded(cached.data, count);
                             return;
                         }
-                    }
-                }
                 // No valid cache, fetch from API
                 self.workflows.owners.set_loading();
                 let result = Self::fetch_owners(self.github_client.as_mut().unwrap()).await;
@@ -2191,17 +2186,14 @@ impl App {
                 }
                 let owner = owner.clone();
                 // Try to load from cache first
-                if let Some(path) = cache::repos_list_path(&owner) {
-                    if let Ok(Some(cached)) =
+                if let Some(path) = cache::repos_list_path(&owner)
+                    && let Ok(Some(cached)) =
                         cache::read_cached::<Vec<crate::github::Repository>>(&path)
-                    {
-                        if cached.is_valid(cache::DEFAULT_TTL) {
+                        && cached.is_valid(cache::DEFAULT_TTL) {
                             let count = cached.data.len() as u64;
                             self.workflows.repositories.set_loaded(cached.data, count);
                             return;
                         }
-                    }
-                }
                 // No valid cache, fetch from API
                 self.workflows.repositories.set_loading();
                 let result =
@@ -2229,17 +2221,14 @@ impl App {
                 let owner = owner.clone();
                 let repo = repo.clone();
                 // Try to load from cache first
-                if let Some(path) = cache::workflows_list_path(&owner, &repo) {
-                    if let Ok(Some(cached)) =
+                if let Some(path) = cache::workflows_list_path(&owner, &repo)
+                    && let Ok(Some(cached)) =
                         cache::read_cached::<Vec<crate::github::Workflow>>(&path)
-                    {
-                        if cached.is_valid(cache::DEFAULT_TTL) {
+                        && cached.is_valid(cache::DEFAULT_TTL) {
                             let count = cached.data.len() as u64;
                             self.workflows.workflows.set_loaded(cached.data, count);
                             return;
                         }
-                    }
-                }
                 // No valid cache, fetch from API
                 self.workflows.workflows.set_loading();
                 let result = self
@@ -2273,17 +2262,14 @@ impl App {
                 let owner = owner.clone();
                 let repo = repo.clone();
                 // Try to load from cache first
-                if let Some(path) = cache::runs_list_path(&owner, &repo, workflow_id) {
-                    if let Ok(Some(cached)) =
+                if let Some(path) = cache::runs_list_path(&owner, &repo, workflow_id)
+                    && let Ok(Some(cached)) =
                         cache::read_cached::<Vec<crate::github::WorkflowRun>>(&path)
-                    {
-                        if cached.is_valid(cache::DEFAULT_TTL) {
+                        && cached.is_valid(cache::DEFAULT_TTL) {
                             let count = cached.data.len() as u64;
                             self.workflows.runs.set_loaded(cached.data, count);
                             return;
                         }
-                    }
-                }
                 // No valid cache, fetch from API
                 self.workflows.runs.set_loading();
                 let branch = self.workflows.current_branch.as_deref();
@@ -2319,9 +2305,9 @@ impl App {
                 let owner = owner.clone();
                 let repo = repo.clone();
                 // Try to load from cache first
-                if let Some(path) = cache::jobs_list_path(&owner, &repo, workflow_id, run_id) {
-                    if let Ok(Some(cached)) = cache::read_cached::<Vec<crate::github::Job>>(&path) {
-                        if cached.is_valid(cache::DEFAULT_TTL) {
+                if let Some(path) = cache::jobs_list_path(&owner, &repo, workflow_id, run_id)
+                    && let Ok(Some(cached)) = cache::read_cached::<Vec<crate::github::Job>>(&path)
+                        && cached.is_valid(cache::DEFAULT_TTL) {
                             let count = cached.data.len() as u64;
                             self.workflows.jobs.set_loaded(cached.data.clone(), count);
                             // Group jobs by name and create flattened list
@@ -2331,8 +2317,6 @@ impl App {
                                 crate::github::JobListItem::flatten(&self.workflows.job_groups);
                             return;
                         }
-                    }
-                }
                 // No valid cache, fetch from API
                 self.workflows.jobs.set_loading();
                 let result = self
@@ -2375,12 +2359,10 @@ impl App {
                 let repo = repo.clone();
                 // Try to load from cache first (logs are immutable once job completes)
                 if let Some(path) = cache::job_log_path(&owner, &repo, workflow_id, run_id, job_id)
-                {
-                    if let Ok(Some(logs)) = cache::read_text(&path) {
+                    && let Ok(Some(logs)) = cache::read_text(&path) {
                         self.workflows.log_content = LoadingState::Loaded(logs);
                         return;
                     }
-                }
                 // No cache, fetch from API
                 self.workflows.log_content = LoadingState::Loading;
                 let result = self
@@ -2458,17 +2440,14 @@ impl App {
                     return;
                 }
                 // Try to load from cache first
-                if let Some(path) = cache::runners_repos_path() {
-                    if let Ok(Some(cached)) =
+                if let Some(path) = cache::runners_repos_path()
+                    && let Ok(Some(cached)) =
                         cache::read_cached::<Vec<crate::github::Repository>>(&path)
-                    {
-                        if cached.is_valid(cache::DEFAULT_TTL) {
+                        && cached.is_valid(cache::DEFAULT_TTL) {
                             let count = cached.data.len() as u64;
                             self.runners.repositories.set_loaded(cached.data, count);
                             return;
                         }
-                    }
-                }
                 // No valid cache, fetch from API
                 self.runners.repositories.set_loading();
                 let result = self
@@ -2617,13 +2596,12 @@ impl App {
     /// Open branch selection modal.
     fn handle_branch_modal_open(&mut self) {
         // Only open modal in Workflows tab when viewing workflows
-        if self.active_tab == Tab::Workflows {
-            if matches!(self.workflows.nav.current(), ViewLevel::Workflows { .. }) {
+        if self.active_tab == Tab::Workflows
+            && matches!(self.workflows.nav.current(), ViewLevel::Workflows { .. }) {
                 self.workflows.branch_modal_visible = true;
                 self.workflows.branch_input.clear();
                 self.workflows.branch_history_selection = 0;
             }
-        }
     }
 
     /// Handle branch switch from modal.

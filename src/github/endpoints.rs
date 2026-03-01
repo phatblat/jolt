@@ -306,8 +306,8 @@ impl GitHubClient {
 
         // Build map of runner name to job info for in-progress jobs
         for (job, run) in all_jobs {
-            if matches!(job.status, RunStatus::InProgress) {
-                if let Some(runner_name) = job.runner_name {
+            if matches!(job.status, RunStatus::InProgress)
+                && let Some(runner_name) = job.runner_name {
                     enrichment_map.insert(
                         runner_name,
                         RunnerJobInfo {
@@ -318,7 +318,6 @@ impl GitHubClient {
                         },
                     );
                 }
-            }
         }
 
         enrichment_map

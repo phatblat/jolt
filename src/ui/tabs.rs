@@ -48,9 +48,9 @@ pub fn draw_tabs(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(tabs_widget, area);
 
     // Show branch selector on the right side when on Workflows tab at Workflows view level
-    if app.active_tab == Tab::Workflows {
-        if let ViewLevel::Workflows { .. } = app.workflows.nav.current() {
-            if let Some(branch) = &app.workflows.current_branch {
+    if app.active_tab == Tab::Workflows
+        && let ViewLevel::Workflows { .. } = app.workflows.nav.current()
+            && let Some(branch) = &app.workflows.current_branch {
                 let branch_line = Line::from(vec![
                     Span::styled("branch (b): ", Style::default().fg(Color::DarkGray)),
                     Span::styled(
@@ -72,6 +72,4 @@ pub fn draw_tabs(frame: &mut Frame, app: &App, area: Rect) {
                     },
                 );
             }
-        }
-    }
 }
