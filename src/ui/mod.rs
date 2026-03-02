@@ -397,7 +397,7 @@ fn draw_runners_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
 
                     // Use bookmark emoji for session lines, line number for others
                     let line_num_display = if is_in_session {
-                        format!("   🔖 │ ")
+                        "   🔖 │ ".to_string()
                     } else {
                         format!("{:>5} │ ", line_num)
                     };
@@ -735,7 +735,7 @@ fn draw_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
 
                     // Use bookmark emoji for session lines, line number for others
                     let line_num_display = if is_in_session {
-                        format!("   🔖 │ ")
+                        "   🔖 │ ".to_string()
                     } else {
                         format!("{:>5} │ ", line_num)
                     };

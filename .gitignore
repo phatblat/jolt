@@ -34,3 +34,8 @@ Temporary Items
 
 # Auto Claude data directory
 .auto-claude/
+
+# Gas Town (added by gt)
+.runtime/
+.claude/commands/
+.logs/

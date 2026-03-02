@@ -249,11 +249,10 @@ impl AnalyzeTabState {
     pub fn delete_session(&mut self, id: &str) {
         self.sessions.retain(|s| s.id != id);
         // Adjust selection if needed
-        if let Some(selected) = self.list_state.selected() {
-            if selected >= self.sessions.len() {
+        if let Some(selected) = self.list_state.selected()
+            && selected >= self.sessions.len() {
                 self.reset_selection();
             }
-        }
     }
 
     /// Find session by ID.
