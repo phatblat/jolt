@@ -50,7 +50,7 @@ build:
     cargo build
 
 # Build release binary
-release:
+build-release:
     cargo build --release
 
 # Run tests

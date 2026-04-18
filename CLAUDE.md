@@ -43,7 +43,7 @@ just build
 just run
 
 # Build release binary
-just release
+just build-release
 ```
 
 ### Quality & Formatting
