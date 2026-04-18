@@ -26,7 +26,7 @@ impl GitHubClient {
 
         headers.insert(
             AUTHORIZATION,
-            HeaderValue::from_str(&format!("Bearer {}", token))
+            HeaderValue::from_str(&format!("Bearer {token}"))
                 .map_err(|e| JoltError::Other(e.to_string()))?,
         );
         headers.insert(
@@ -53,6 +53,9 @@ impl GitHubClient {
     /// Create a client from the GITHUB_TOKEN environment variable.
     pub fn from_env() -> Result<Self> {
         let token = std::env::var("GITHUB_TOKEN").map_err(|_| JoltError::MissingToken)?;
+        if token.trim().is_empty() {
+            return Err(JoltError::MissingToken);
+        }
         Self::new(&token)
     }
 
@@ -63,7 +66,7 @@ impl GitHubClient {
 
     /// Make a GET request to the GitHub API.
     pub async fn get(&mut self, endpoint: &str) -> Result<Response> {
-        let url = format!("{}{}", GITHUB_API_BASE, endpoint);
+        let url = format!("{GITHUB_API_BASE}{endpoint}");
         let response = self.client.get(&url).send().await.map_err(JoltError::Api)?;
 
         self.update_rate_limit(&response);
@@ -76,7 +79,7 @@ impl GitHubClient {
         endpoint: &str,
         params: &T,
     ) -> Result<Response> {
-        let url = format!("{}{}", GITHUB_API_BASE, endpoint);
+        let url = format!("{GITHUB_API_BASE}{endpoint}");
         let response = self
             .client
             .get(&url)
@@ -123,7 +126,7 @@ impl GitHubClient {
     async fn check_response(&self, response: Response) -> Result<Response> {
         match response.status() {
             StatusCode::OK | StatusCode::CREATED | StatusCode::ACCEPTED => Ok(response),
-            StatusCode::UNAUTHORIZED => Err(JoltError::Unauthorized),
+            StatusCode::UNAUTHORIZED => Err(JoltError::Unauthorized(unauthorized_detail())),
             StatusCode::NOT_FOUND => {
                 let url = response.url().to_string();
                 Err(JoltError::NotFound(url))
@@ -149,5 +152,19 @@ impl GitHubClient {
                 response.text().await.unwrap_or_default()
             ))),
         }
+    }
+}
+
+/// Build a detail string for a 401 based on the current GITHUB_TOKEN env state.
+fn unauthorized_detail() -> String {
+    match std::env::var("GITHUB_TOKEN") {
+        Err(_) => "GITHUB_TOKEN is not set. Try: export GITHUB_TOKEN=$(gh auth token)".into(),
+        Ok(v) if v.trim().is_empty() => {
+            "GITHUB_TOKEN is set but empty. Try: export GITHUB_TOKEN=$(gh auth token)".into()
+        }
+        Ok(_) => "GITHUB_TOKEN is set but rejected by GitHub (invalid, expired, or \
+                  missing required scopes). Try: gh auth refresh -h github.com -s admin:org, \
+                  then: export GITHUB_TOKEN=$(gh auth token)"
+            .into(),
     }
 }

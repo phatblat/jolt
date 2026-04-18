@@ -72,7 +72,7 @@ pub fn runners_dir(owner: &str, repo: &str) -> Option<PathBuf> {
 
 /// Path to a runner's metadata file.
 pub fn runner_path(owner: &str, repo: &str, runner_id: u64) -> Option<PathBuf> {
-    runners_dir(owner, repo).map(|dir| dir.join(format!("{}.json", runner_id)))
+    runners_dir(owner, repo).map(|dir| dir.join(format!("{runner_id}.json")))
 }
 
 /// Path to a repository's workflows directory.

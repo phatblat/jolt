@@ -21,6 +21,11 @@ use app::App;
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
+    if std::env::args().any(|a| a == "--version" || a == "-V") {
+        println!("jolt {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();

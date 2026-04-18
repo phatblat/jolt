@@ -10,6 +10,7 @@ use ratatui::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::cache;
+use crate::error::JoltError;
 use crate::github::GitHubClient;
 use crate::state::{
     AnalysisSession, AnalyzeTabState, AnalyzeViewLevel, LoadingState, NavigationContext,
@@ -179,7 +180,7 @@ impl App {
             Ok(client) => Some(client),
             Err(e) => {
                 // Will show error in console tab
-                eprintln!("GitHub client error: {}", e);
+                eprintln!("GitHub client error: {e}");
                 None
             }
         };
@@ -199,17 +200,19 @@ impl App {
 
         // Restore log view state for current job if viewing logs
         if let ViewLevel::Logs { job_id, .. } = workflows.nav.current()
-            && let Some(state) = persisted.log_view_states.get(job_id) {
-                workflows.log_selection_anchor = state.selection_anchor;
-                workflows.log_selection_cursor = state.selection_cursor;
-                workflows.log_scroll_y = state.scroll_y;
-            }
+            && let Some(state) = persisted.log_view_states.get(job_id)
+        {
+            workflows.log_selection_anchor = state.selection_anchor;
+            workflows.log_selection_cursor = state.selection_cursor;
+            workflows.log_scroll_y = state.scroll_y;
+        }
         if let RunnersViewLevel::Logs { job_id, .. } = runners.nav.current()
-            && let Some(state) = persisted.log_view_states.get(job_id) {
-                runners.log_selection_anchor = state.selection_anchor;
-                runners.log_selection_cursor = state.selection_cursor;
-                runners.log_scroll_y = state.scroll_y;
-            }
+            && let Some(state) = persisted.log_view_states.get(job_id)
+        {
+            runners.log_selection_anchor = state.selection_anchor;
+            runners.log_selection_cursor = state.selection_cursor;
+            runners.log_scroll_y = state.scroll_y;
+        }
 
         Self {
             active_tab: persisted.active_tab,
@@ -393,19 +396,16 @@ impl App {
                             KeyCode::Enter => {
                                 self.handle_branch_switch().await;
                             }
-                            KeyCode::Up => {
-                                if !self.workflows.branch_history.is_empty() {
-                                    if self.workflows.branch_history_selection > 0 {
-                                        self.workflows.branch_history_selection -= 1;
-                                    }
-                                }
+                            KeyCode::Up
+                                if !self.workflows.branch_history.is_empty()
+                                    && self.workflows.branch_history_selection > 0 =>
+                            {
+                                self.workflows.branch_history_selection -= 1;
                             }
-                            KeyCode::Down => {
-                                if !self.workflows.branch_history.is_empty() {
-                                    let max = self.workflows.branch_history.len() - 1;
-                                    if self.workflows.branch_history_selection < max {
-                                        self.workflows.branch_history_selection += 1;
-                                    }
+                            KeyCode::Down if !self.workflows.branch_history.is_empty() => {
+                                let max = self.workflows.branch_history.len() - 1;
+                                if self.workflows.branch_history_selection < max {
+                                    self.workflows.branch_history_selection += 1;
                                 }
                             }
                             KeyCode::Backspace => {
@@ -513,30 +513,17 @@ impl App {
                 ref repo,
             } = self.runners.nav.current().clone()
             {
-                if let Some(next_refresh) = self.runners.runners_next_refresh {
-                    if std::time::Instant::now() >= next_refresh {
-                        // Time to refresh - force reload
-                        self.runners.runners.set_loading();
-                        let owner = owner.clone();
-                        let repo = repo.clone();
-                        let result = self
-                            .github_client
-                            .as_mut()
-                            .unwrap()
-                            .get_enriched_runners(&owner, &repo, 1, 30)
-                            .await;
-                        match result {
-                            Ok((runners, count)) => {
-                                self.runners.runners.set_loaded(runners, count);
-                            }
-                            Err(e) => {
-                                self.runners.runners.set_error(e.to_string());
-                            }
-                        }
-                        // Schedule next refresh
-                        self.runners.runners_next_refresh =
-                            Some(std::time::Instant::now() + std::time::Duration::from_secs(60));
-                    }
+                if let Some(next_refresh) = self.runners.runners_next_refresh
+                    && std::time::Instant::now() >= next_refresh
+                {
+                    // Time to refresh - force reload
+                    self.runners.runners.set_loading();
+                    let owner = owner.clone();
+                    let repo = repo.clone();
+                    self.load_combined_runners(&owner, &repo).await;
+                    // Schedule next refresh
+                    self.runners.runners_next_refresh =
+                        Some(std::time::Instant::now() + std::time::Duration::from_secs(60));
                 }
             }
         }
@@ -860,7 +847,7 @@ impl App {
         #[allow(clippy::collapsible_if)]
         if let Some(url) = url {
             if let Err(e) = std::process::Command::new("open").arg(&url).spawn() {
-                self.log_error(format!("Failed to open browser: {}", e));
+                self.log_error(format!("Failed to open browser: {e}"));
             }
         }
     }
@@ -1031,10 +1018,8 @@ impl App {
         };
 
         // Build GitHub URL
-        let github_url = format!(
-            "https://github.com/{}/{}/actions/runs/{}/job/{}",
-            owner, repo, run_id, job_id
-        );
+        let github_url =
+            format!("https://github.com/{owner}/{repo}/actions/runs/{run_id}/job/{job_id}");
 
         // Create and add session
         let session = AnalysisSession::new(
@@ -1141,10 +1126,8 @@ impl App {
         };
 
         // Build GitHub URL
-        let github_url = format!(
-            "https://github.com/{}/{}/actions/runs/{}/job/{}",
-            owner, repo, run_id, job_id
-        );
+        let github_url =
+            format!("https://github.com/{owner}/{repo}/actions/runs/{run_id}/job/{job_id}");
 
         // Create and add session
         let session = AnalysisSession::new(
@@ -1582,18 +1565,21 @@ impl App {
                 let owner = owner.clone();
                 let repo = repo.clone();
                 sorted.sort_by(|a, b| {
-                    let a_key = format!("{}/{}/{}", owner, repo, a.runner.name);
-                    let b_key = format!("{}/{}/{}", owner, repo, b.runner.name);
-                    let a_fav = self.favorite_runners.contains(&a_key);
-                    let b_fav = self.favorite_runners.contains(&b_key);
-                    match (a_fav, b_fav) {
-                        (true, false) => std::cmp::Ordering::Less,
-                        (false, true) => std::cmp::Ordering::Greater,
-                        _ => a.runner.name.cmp(&b.runner.name),
-                    }
+                    a.scope
+                        .cmp(&b.scope)
+                        .then_with(|| {
+                            let a_fav = self
+                                .favorite_runners
+                                .contains(&a.favorite_key(&owner, &repo));
+                            let b_fav = self
+                                .favorite_runners
+                                .contains(&b.favorite_key(&owner, &repo));
+                            b_fav.cmp(&a_fav)
+                        })
+                        .then_with(|| a.runner.name.cmp(&b.runner.name))
                 });
                 if let Some(enriched) = sorted.get(index) {
-                    let key = format!("{}/{}/{}", owner, repo, enriched.runner.name);
+                    let key = enriched.favorite_key(&owner, &repo);
                     if self.favorite_runners.contains(&key) {
                         self.favorite_runners.remove(&key);
                     } else {
@@ -1708,8 +1694,7 @@ impl App {
                 job_id,
                 ..
             } => Some(format!(
-                "https://github.com/{}/{}/actions/runs/{}/job/{}",
-                owner, repo, run_id, job_id
+                "https://github.com/{owner}/{repo}/actions/runs/{run_id}/job/{job_id}"
             )),
         }
     }
@@ -1737,8 +1722,7 @@ impl App {
                     .map(|repo| format!("https://github.com/{}/{}", repo.owner.login, repo.name))
             }
             RunnersViewLevel::Runners { owner, repo } => Some(format!(
-                "https://github.com/{}/{}/settings/actions/runners",
-                owner, repo
+                "https://github.com/{owner}/{repo}/settings/actions/runners"
             )),
             RunnersViewLevel::Runs { owner, repo, .. } => {
                 self.runners.runs.selected_item().map(|run| {
@@ -1766,8 +1750,7 @@ impl App {
                 job_id,
                 ..
             } => Some(format!(
-                "https://github.com/{}/{}/actions/runs/{}/job/{}",
-                owner, repo, run_id, job_id
+                "https://github.com/{owner}/{repo}/actions/runs/{run_id}/job/{job_id}"
             )),
         }
     }
@@ -1999,15 +1982,18 @@ impl App {
                 let owner = owner.clone();
                 let repo = repo.clone();
                 sorted.sort_by(|a, b| {
-                    let a_key = format!("{}/{}/{}", owner, repo, a.runner.name);
-                    let b_key = format!("{}/{}/{}", owner, repo, b.runner.name);
-                    let a_fav = self.favorite_runners.contains(&a_key);
-                    let b_fav = self.favorite_runners.contains(&b_key);
-                    match (a_fav, b_fav) {
-                        (true, false) => std::cmp::Ordering::Less,
-                        (false, true) => std::cmp::Ordering::Greater,
-                        _ => a.runner.name.cmp(&b.runner.name),
-                    }
+                    a.scope
+                        .cmp(&b.scope)
+                        .then_with(|| {
+                            let a_fav = self
+                                .favorite_runners
+                                .contains(&a.favorite_key(&owner, &repo));
+                            let b_fav = self
+                                .favorite_runners
+                                .contains(&b.favorite_key(&owner, &repo));
+                            b_fav.cmp(&a_fav)
+                        })
+                        .then_with(|| a.runner.name.cmp(&b.runner.name))
                 });
                 sorted.get(index).map(|enriched| RunnersViewLevel::Runs {
                     owner,
@@ -2159,11 +2145,12 @@ impl App {
                 // Try to load from cache first
                 if let Some(path) = cache::owners_list_path()
                     && let Ok(Some(cached)) = cache::read_cached::<Vec<crate::github::Owner>>(&path)
-                        && cached.is_valid(cache::DEFAULT_TTL) {
-                            let count = cached.data.len() as u64;
-                            self.workflows.owners.set_loaded(cached.data, count);
-                            return;
-                        }
+                    && cached.is_valid(cache::DEFAULT_TTL)
+                {
+                    let count = cached.data.len() as u64;
+                    self.workflows.owners.set_loaded(cached.data, count);
+                    return;
+                }
                 // No valid cache, fetch from API
                 self.workflows.owners.set_loading();
                 let result = Self::fetch_owners(self.github_client.as_mut().unwrap()).await;
@@ -2176,7 +2163,7 @@ impl App {
                     }
                     Err(e) => {
                         self.workflows.owners.set_error(e.to_string());
-                        self.log_error(format!("Failed to load owners: {}", e));
+                        self.log_error(format!("Failed to load owners: {e}"));
                     }
                 }
             }
@@ -2189,11 +2176,12 @@ impl App {
                 if let Some(path) = cache::repos_list_path(&owner)
                     && let Ok(Some(cached)) =
                         cache::read_cached::<Vec<crate::github::Repository>>(&path)
-                        && cached.is_valid(cache::DEFAULT_TTL) {
-                            let count = cached.data.len() as u64;
-                            self.workflows.repositories.set_loaded(cached.data, count);
-                            return;
-                        }
+                    && cached.is_valid(cache::DEFAULT_TTL)
+                {
+                    let count = cached.data.len() as u64;
+                    self.workflows.repositories.set_loaded(cached.data, count);
+                    return;
+                }
                 // No valid cache, fetch from API
                 self.workflows.repositories.set_loading();
                 let result =
@@ -2207,7 +2195,7 @@ impl App {
                     }
                     Err(e) => {
                         self.workflows.repositories.set_error(e.to_string());
-                        self.log_error(format!("Failed to load repositories: {}", e));
+                        self.log_error(format!("Failed to load repositories: {e}"));
                     }
                 }
             }
@@ -2224,11 +2212,12 @@ impl App {
                 if let Some(path) = cache::workflows_list_path(&owner, &repo)
                     && let Ok(Some(cached)) =
                         cache::read_cached::<Vec<crate::github::Workflow>>(&path)
-                        && cached.is_valid(cache::DEFAULT_TTL) {
-                            let count = cached.data.len() as u64;
-                            self.workflows.workflows.set_loaded(cached.data, count);
-                            return;
-                        }
+                    && cached.is_valid(cache::DEFAULT_TTL)
+                {
+                    let count = cached.data.len() as u64;
+                    self.workflows.workflows.set_loaded(cached.data, count);
+                    return;
+                }
                 // No valid cache, fetch from API
                 self.workflows.workflows.set_loading();
                 let result = self
@@ -2246,7 +2235,7 @@ impl App {
                     }
                     Err(e) => {
                         self.workflows.workflows.set_error(e.to_string());
-                        self.log_error(format!("Failed to load workflows: {}", e));
+                        self.log_error(format!("Failed to load workflows: {e}"));
                     }
                 }
             }
@@ -2265,11 +2254,12 @@ impl App {
                 if let Some(path) = cache::runs_list_path(&owner, &repo, workflow_id)
                     && let Ok(Some(cached)) =
                         cache::read_cached::<Vec<crate::github::WorkflowRun>>(&path)
-                        && cached.is_valid(cache::DEFAULT_TTL) {
-                            let count = cached.data.len() as u64;
-                            self.workflows.runs.set_loaded(cached.data, count);
-                            return;
-                        }
+                    && cached.is_valid(cache::DEFAULT_TTL)
+                {
+                    let count = cached.data.len() as u64;
+                    self.workflows.runs.set_loaded(cached.data, count);
+                    return;
+                }
                 // No valid cache, fetch from API
                 self.workflows.runs.set_loading();
                 let branch = self.workflows.current_branch.as_deref();
@@ -2288,7 +2278,7 @@ impl App {
                     }
                     Err(e) => {
                         self.workflows.runs.set_error(e.to_string());
-                        self.log_error(format!("Failed to load runs: {}", e));
+                        self.log_error(format!("Failed to load runs: {e}"));
                     }
                 }
             }
@@ -2307,16 +2297,16 @@ impl App {
                 // Try to load from cache first
                 if let Some(path) = cache::jobs_list_path(&owner, &repo, workflow_id, run_id)
                     && let Ok(Some(cached)) = cache::read_cached::<Vec<crate::github::Job>>(&path)
-                        && cached.is_valid(cache::DEFAULT_TTL) {
-                            let count = cached.data.len() as u64;
-                            self.workflows.jobs.set_loaded(cached.data.clone(), count);
-                            // Group jobs by name and create flattened list
-                            self.workflows.job_groups =
-                                crate::github::JobGroup::group_by_name(cached.data);
-                            self.workflows.job_list_items =
-                                crate::github::JobListItem::flatten(&self.workflows.job_groups);
-                            return;
-                        }
+                    && cached.is_valid(cache::DEFAULT_TTL)
+                {
+                    let count = cached.data.len() as u64;
+                    self.workflows.jobs.set_loaded(cached.data.clone(), count);
+                    // Group jobs by name and create flattened list
+                    self.workflows.job_groups = crate::github::JobGroup::group_by_name(cached.data);
+                    self.workflows.job_list_items =
+                        crate::github::JobListItem::flatten(&self.workflows.job_groups);
+                    return;
+                }
                 // No valid cache, fetch from API
                 self.workflows.jobs.set_loading();
                 let result = self
@@ -2340,7 +2330,7 @@ impl App {
                     }
                     Err(e) => {
                         self.workflows.jobs.set_error(e.to_string());
-                        self.log_error(format!("Failed to load jobs: {}", e));
+                        self.log_error(format!("Failed to load jobs: {e}"));
                     }
                 }
             }
@@ -2359,10 +2349,11 @@ impl App {
                 let repo = repo.clone();
                 // Try to load from cache first (logs are immutable once job completes)
                 if let Some(path) = cache::job_log_path(&owner, &repo, workflow_id, run_id, job_id)
-                    && let Ok(Some(logs)) = cache::read_text(&path) {
-                        self.workflows.log_content = LoadingState::Loaded(logs);
-                        return;
-                    }
+                    && let Ok(Some(logs)) = cache::read_text(&path)
+                {
+                    self.workflows.log_content = LoadingState::Loaded(logs);
+                    return;
+                }
                 // No cache, fetch from API
                 self.workflows.log_content = LoadingState::Loading;
                 let result = self
@@ -2382,7 +2373,7 @@ impl App {
                     }
                     Err(e) => {
                         self.workflows.log_content = LoadingState::Error(e.to_string());
-                        self.log_error(format!("Failed to load logs: {}", e));
+                        self.log_error(format!("Failed to load logs: {e}"));
                     }
                 }
             }
@@ -2443,11 +2434,12 @@ impl App {
                 if let Some(path) = cache::runners_repos_path()
                     && let Ok(Some(cached)) =
                         cache::read_cached::<Vec<crate::github::Repository>>(&path)
-                        && cached.is_valid(cache::DEFAULT_TTL) {
-                            let count = cached.data.len() as u64;
-                            self.runners.repositories.set_loaded(cached.data, count);
-                            return;
-                        }
+                    && cached.is_valid(cache::DEFAULT_TTL)
+                {
+                    let count = cached.data.len() as u64;
+                    self.runners.repositories.set_loaded(cached.data, count);
+                    return;
+                }
                 // No valid cache, fetch from API
                 self.runners.repositories.set_loading();
                 let result = self
@@ -2466,7 +2458,7 @@ impl App {
                     }
                     Err(e) => {
                         self.runners.repositories.set_error(e.to_string());
-                        self.log_error(format!("Failed to load repositories: {}", e));
+                        self.log_error(format!("Failed to load repositories: {e}"));
                     }
                 }
             }
@@ -2486,21 +2478,7 @@ impl App {
                     self.runners.runners.set_loading();
                     let owner = owner.clone();
                     let repo = repo.clone();
-                    let result = self
-                        .github_client
-                        .as_mut()
-                        .unwrap()
-                        .get_enriched_runners(&owner, &repo, 1, 30)
-                        .await;
-                    match result {
-                        Ok((runners, count)) => {
-                            self.runners.runners.set_loaded(runners, count);
-                        }
-                        Err(e) => {
-                            self.runners.runners.set_error(e.to_string());
-                            self.log_error(format!("Failed to load runners: {}", e));
-                        }
-                    }
+                    self.load_combined_runners(&owner, &repo).await;
                 }
             }
             RunnersViewLevel::Runs {
@@ -2522,12 +2500,12 @@ impl App {
                     match result {
                         Ok((mut runs, count)) => {
                             // Sort by updated_at in descending order (newest first)
-                            runs.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+                            runs.sort_by_key(|r| std::cmp::Reverse(r.updated_at));
                             self.runners.runs.set_loaded(runs, count);
                         }
                         Err(e) => {
                             self.runners.runs.set_error(e.to_string());
-                            self.log_error(format!("Failed to load runs: {}", e));
+                            self.log_error(format!("Failed to load runs: {e}"));
                         }
                     }
                 }
@@ -2558,7 +2536,7 @@ impl App {
                         }
                         Err(e) => {
                             self.runners.jobs.set_error(e.to_string());
-                            self.log_error(format!("Failed to load jobs: {}", e));
+                            self.log_error(format!("Failed to load jobs: {e}"));
                         }
                     }
                 }
@@ -2585,7 +2563,7 @@ impl App {
                         }
                         Err(e) => {
                             self.runners.log_content = LoadingState::Error(e.to_string());
-                            self.log_error(format!("Failed to load logs: {}", e));
+                            self.log_error(format!("Failed to load logs: {e}"));
                         }
                     }
                 }
@@ -2597,11 +2575,12 @@ impl App {
     fn handle_branch_modal_open(&mut self) {
         // Only open modal in Workflows tab when viewing workflows
         if self.active_tab == Tab::Workflows
-            && matches!(self.workflows.nav.current(), ViewLevel::Workflows { .. }) {
-                self.workflows.branch_modal_visible = true;
-                self.workflows.branch_input.clear();
-                self.workflows.branch_history_selection = 0;
-            }
+            && matches!(self.workflows.nav.current(), ViewLevel::Workflows { .. })
+        {
+            self.workflows.branch_modal_visible = true;
+            self.workflows.branch_input.clear();
+            self.workflows.branch_history_selection = 0;
+        }
     }
 
     /// Handle branch switch from modal.
@@ -2646,6 +2625,43 @@ impl App {
     /// Log an error to the sync activity log.
     fn log_error(&mut self, message: impl Into<String>) {
         self.sync.log_error(message);
+    }
+
+    /// Load the combined repo + org runners for `owner/repo` into `self.runners.runners`.
+    /// Repo fetch errors are fatal; org fetch errors are logged (404 is silent — owner is
+    /// likely a user account, not an org).
+    async fn load_combined_runners(&mut self, owner: &str, repo: &str) {
+        let repo_result = self
+            .github_client
+            .as_mut()
+            .unwrap()
+            .get_enriched_runners(owner, repo)
+            .await;
+        let mut combined = match repo_result {
+            Ok((runners, _)) => runners,
+            Err(e) => {
+                self.runners.runners.set_error(e.to_string());
+                self.log_error(format!("Failed to load runners: {e}"));
+                return;
+            }
+        };
+
+        let org_result = self
+            .github_client
+            .as_mut()
+            .unwrap()
+            .get_enriched_org_runners(owner)
+            .await;
+        match org_result {
+            Ok((mut org_runners, _)) => combined.append(&mut org_runners),
+            Err(JoltError::NotFound(_)) => {}
+            Err(e) => {
+                self.log_error(format!("Failed to load org runners for {owner}: {e}"));
+            }
+        }
+
+        let count = combined.len() as u64;
+        self.runners.runners.set_loaded(combined, count);
     }
 
     /// Log a warning to the sync activity log.

@@ -24,7 +24,7 @@ list:
     mise ls --local
 
 # Install dependencies
-install:
+tools:
     mise install
     cargo fetch
 
@@ -50,8 +50,12 @@ build:
     cargo build
 
 # Build release binary
-release:
+build-release:
     cargo build --release
+
+# Build and install the release binary via cargo install
+install: build-release
+    cargo install --path .
 
 # Run tests
 test:
