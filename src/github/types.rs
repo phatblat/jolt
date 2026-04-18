@@ -265,11 +265,35 @@ pub struct Runner {
     pub labels: Vec<RunnerLabel>,
 }
 
+/// Scope at which a self-hosted runner is registered.
+///
+/// `Repo` is declared before `Org` so the derived `Ord` sorts repo-level runners
+/// before org-level runners.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum RunnerScope {
+    Repo,
+    Org,
+}
+
 /// Enriched runner info with current job details.
 #[derive(Debug, Clone)]
 pub struct EnrichedRunner {
     pub runner: Runner,
     pub current_job: Option<RunnerJobInfo>,
+    pub scope: RunnerScope,
+}
+
+impl EnrichedRunner {
+    /// Build the favorites-set key for this runner. Repo runners are keyed by
+    /// `{owner}/{repo}/{name}`; org runners are keyed by `{owner}/{name}` so a
+    /// favorited org runner is remembered independent of the repo the user
+    /// happened to be viewing when they favorited it.
+    pub fn favorite_key(&self, owner: &str, repo: &str) -> String {
+        match self.scope {
+            RunnerScope::Repo => format!("{owner}/{repo}/{}", self.runner.name),
+            RunnerScope::Org => format!("{owner}/{}", self.runner.name),
+        }
+    }
 }
 
 /// Current job information for a busy runner.

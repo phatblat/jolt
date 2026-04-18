@@ -8,7 +8,8 @@ use crate::error::{JoltError, Result};
 
 use super::client::GitHubClient;
 use super::types::{
-    EnrichedRunner, Job, Owner, Repository, RunStatus, Runner, RunnerJobInfo, Workflow, WorkflowRun,
+    EnrichedRunner, Job, Owner, Repository, RunStatus, Runner, RunnerJobInfo, RunnerScope,
+    Workflow, WorkflowRun,
 };
 
 /// Parse JSON response with better error messages.
@@ -258,6 +259,24 @@ impl GitHubClient {
         Ok((wrapper.runners, wrapper.total_count))
     }
 
+    /// Get runners registered at the organization level (requires `admin:org` scope).
+    pub async fn get_org_runners(
+        &mut self,
+        org: &str,
+        page: u32,
+        per_page: u32,
+    ) -> Result<(Vec<Runner>, u64)> {
+        let params = [
+            ("page", &page.to_string()),
+            ("per_page", &per_page.to_string()),
+        ];
+        let response = self
+            .get_with_params(&format!("/orgs/{org}/actions/runners"), &params)
+            .await?;
+        let wrapper: RunnersResponse = parse_json(response).await?;
+        Ok((wrapper.runners, wrapper.total_count))
+    }
+
     /// Fetch runner enrichment data (job info) without fetching runners list.
     /// Returns a map of runner names to their current job info.
     pub async fn fetch_runner_enrichment_data(
@@ -326,6 +345,28 @@ impl GitHubClient {
             .map(|runner| EnrichedRunner {
                 runner,
                 current_job: None,
+                scope: RunnerScope::Repo,
+            })
+            .collect();
+
+        Ok((enriched_runners, total_count))
+    }
+
+    /// Get enriched org-level runners (tagged `RunnerScope::Org`).
+    pub async fn get_enriched_org_runners(
+        &mut self,
+        org: &str,
+        page: u32,
+        per_page: u32,
+    ) -> Result<(Vec<EnrichedRunner>, u64)> {
+        let (runners, total_count) = self.get_org_runners(org, page, per_page).await?;
+
+        let enriched_runners = runners
+            .into_iter()
+            .map(|runner| EnrichedRunner {
+                runner,
+                current_job: None,
+                scope: RunnerScope::Org,
             })
             .collect();
 

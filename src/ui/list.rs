@@ -8,7 +8,7 @@ use ratatui::{prelude::*, widgets::*};
 
 use crate::github::{
     EnrichedRunner, Job, JobGroup, JobListItem, Owner, OwnerType, Repository, RunConclusion,
-    RunStatus, RunnerStatus, Workflow, WorkflowRun,
+    RunStatus, RunnerScope, RunnerStatus, Workflow, WorkflowRun,
 };
 use crate::state::{LoadingState, SelectableList};
 
@@ -575,27 +575,30 @@ pub fn render_runners_list(
             if data.is_empty() {
                 render_empty(frame, area, "No runners found");
             } else {
-                // Sort: favorites first, then by name
+                // Sort: repo scope first, then favorites, then by name
                 let mut sorted: Vec<_> = data.items.iter().collect();
                 sorted.sort_by(|a, b| {
-                    let a_key = format!("{}/{}/{}", owner, repo, a.runner.name);
-                    let b_key = format!("{}/{}/{}", owner, repo, b.runner.name);
-                    let a_fav = favorites.contains(&a_key);
-                    let b_fav = favorites.contains(&b_key);
-                    match (a_fav, b_fav) {
-                        (true, false) => std::cmp::Ordering::Less,
-                        (false, true) => std::cmp::Ordering::Greater,
-                        _ => a.runner.name.cmp(&b.runner.name),
-                    }
+                    a.scope
+                        .cmp(&b.scope)
+                        .then_with(|| {
+                            let a_fav = favorites.contains(&a.favorite_key(owner, repo));
+                            let b_fav = favorites.contains(&b.favorite_key(owner, repo));
+                            b_fav.cmp(&a_fav)
+                        })
+                        .then_with(|| a.runner.name.cmp(&b.runner.name))
                 });
 
                 let items: Vec<ListItem> = sorted
                     .iter()
                     .map(|enriched| {
                         let runner = &enriched.runner;
-                        let key = format!("{}/{}/{}", owner, repo, runner.name);
+                        let key = enriched.favorite_key(owner, repo);
                         let is_fav = favorites.contains(&key);
                         let star = if is_fav { "⭐ " } else { "" };
+                        let (scope_label, scope_color) = match enriched.scope {
+                            RunnerScope::Repo => ("[repo]", Color::Blue),
+                            RunnerScope::Org => ("[org] ", Color::Magenta),
+                        };
 
                         let (status_icon, status_color) = if runner.busy {
                             // Active runners get yellow icon
@@ -660,6 +663,13 @@ pub fn render_runners_list(
 
                         ListItem::new(Line::from(vec![
                             Span::raw(format!("{star}{status_icon} ")),
+                            Span::styled(
+                                scope_label,
+                                Style::default()
+                                    .fg(scope_color)
+                                    .add_modifier(Modifier::BOLD),
+                            ),
+                            Span::raw(" "),
                             Span::styled(&runner.name, Style::default().fg(status_color)),
                             Span::styled(
                                 format!("  {}", runner.os),

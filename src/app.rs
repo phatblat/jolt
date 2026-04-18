@@ -10,6 +10,7 @@ use ratatui::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::cache;
+use crate::error::JoltError;
 use crate::github::GitHubClient;
 use crate::state::{
     AnalysisSession, AnalyzeTabState, AnalyzeViewLevel, LoadingState, NavigationContext,
@@ -512,30 +513,17 @@ impl App {
                 ref repo,
             } = self.runners.nav.current().clone()
             {
-                if let Some(next_refresh) = self.runners.runners_next_refresh {
-                    if std::time::Instant::now() >= next_refresh {
-                        // Time to refresh - force reload
-                        self.runners.runners.set_loading();
-                        let owner = owner.clone();
-                        let repo = repo.clone();
-                        let result = self
-                            .github_client
-                            .as_mut()
-                            .unwrap()
-                            .get_enriched_runners(&owner, &repo, 1, 30)
-                            .await;
-                        match result {
-                            Ok((runners, count)) => {
-                                self.runners.runners.set_loaded(runners, count);
-                            }
-                            Err(e) => {
-                                self.runners.runners.set_error(e.to_string());
-                            }
-                        }
-                        // Schedule next refresh
-                        self.runners.runners_next_refresh =
-                            Some(std::time::Instant::now() + std::time::Duration::from_secs(60));
-                    }
+                if let Some(next_refresh) = self.runners.runners_next_refresh
+                    && std::time::Instant::now() >= next_refresh
+                {
+                    // Time to refresh - force reload
+                    self.runners.runners.set_loading();
+                    let owner = owner.clone();
+                    let repo = repo.clone();
+                    self.load_combined_runners(&owner, &repo).await;
+                    // Schedule next refresh
+                    self.runners.runners_next_refresh =
+                        Some(std::time::Instant::now() + std::time::Duration::from_secs(60));
                 }
             }
         }
@@ -1577,18 +1565,21 @@ impl App {
                 let owner = owner.clone();
                 let repo = repo.clone();
                 sorted.sort_by(|a, b| {
-                    let a_key = format!("{}/{}/{}", owner, repo, a.runner.name);
-                    let b_key = format!("{}/{}/{}", owner, repo, b.runner.name);
-                    let a_fav = self.favorite_runners.contains(&a_key);
-                    let b_fav = self.favorite_runners.contains(&b_key);
-                    match (a_fav, b_fav) {
-                        (true, false) => std::cmp::Ordering::Less,
-                        (false, true) => std::cmp::Ordering::Greater,
-                        _ => a.runner.name.cmp(&b.runner.name),
-                    }
+                    a.scope
+                        .cmp(&b.scope)
+                        .then_with(|| {
+                            let a_fav = self
+                                .favorite_runners
+                                .contains(&a.favorite_key(&owner, &repo));
+                            let b_fav = self
+                                .favorite_runners
+                                .contains(&b.favorite_key(&owner, &repo));
+                            b_fav.cmp(&a_fav)
+                        })
+                        .then_with(|| a.runner.name.cmp(&b.runner.name))
                 });
                 if let Some(enriched) = sorted.get(index) {
-                    let key = format!("{}/{}/{}", owner, repo, enriched.runner.name);
+                    let key = enriched.favorite_key(&owner, &repo);
                     if self.favorite_runners.contains(&key) {
                         self.favorite_runners.remove(&key);
                     } else {
@@ -1991,15 +1982,18 @@ impl App {
                 let owner = owner.clone();
                 let repo = repo.clone();
                 sorted.sort_by(|a, b| {
-                    let a_key = format!("{}/{}/{}", owner, repo, a.runner.name);
-                    let b_key = format!("{}/{}/{}", owner, repo, b.runner.name);
-                    let a_fav = self.favorite_runners.contains(&a_key);
-                    let b_fav = self.favorite_runners.contains(&b_key);
-                    match (a_fav, b_fav) {
-                        (true, false) => std::cmp::Ordering::Less,
-                        (false, true) => std::cmp::Ordering::Greater,
-                        _ => a.runner.name.cmp(&b.runner.name),
-                    }
+                    a.scope
+                        .cmp(&b.scope)
+                        .then_with(|| {
+                            let a_fav = self
+                                .favorite_runners
+                                .contains(&a.favorite_key(&owner, &repo));
+                            let b_fav = self
+                                .favorite_runners
+                                .contains(&b.favorite_key(&owner, &repo));
+                            b_fav.cmp(&a_fav)
+                        })
+                        .then_with(|| a.runner.name.cmp(&b.runner.name))
                 });
                 sorted.get(index).map(|enriched| RunnersViewLevel::Runs {
                     owner,
@@ -2484,21 +2478,7 @@ impl App {
                     self.runners.runners.set_loading();
                     let owner = owner.clone();
                     let repo = repo.clone();
-                    let result = self
-                        .github_client
-                        .as_mut()
-                        .unwrap()
-                        .get_enriched_runners(&owner, &repo, 1, 30)
-                        .await;
-                    match result {
-                        Ok((runners, count)) => {
-                            self.runners.runners.set_loaded(runners, count);
-                        }
-                        Err(e) => {
-                            self.runners.runners.set_error(e.to_string());
-                            self.log_error(format!("Failed to load runners: {e}"));
-                        }
-                    }
+                    self.load_combined_runners(&owner, &repo).await;
                 }
             }
             RunnersViewLevel::Runs {
@@ -2645,6 +2625,43 @@ impl App {
     /// Log an error to the sync activity log.
     fn log_error(&mut self, message: impl Into<String>) {
         self.sync.log_error(message);
+    }
+
+    /// Load the combined repo + org runners for `owner/repo` into `self.runners.runners`.
+    /// Repo fetch errors are fatal; org fetch errors are logged (404 is silent — owner is
+    /// likely a user account, not an org).
+    async fn load_combined_runners(&mut self, owner: &str, repo: &str) {
+        let repo_result = self
+            .github_client
+            .as_mut()
+            .unwrap()
+            .get_enriched_runners(owner, repo, 1, 30)
+            .await;
+        let mut combined = match repo_result {
+            Ok((runners, _)) => runners,
+            Err(e) => {
+                self.runners.runners.set_error(e.to_string());
+                self.log_error(format!("Failed to load runners: {e}"));
+                return;
+            }
+        };
+
+        let org_result = self
+            .github_client
+            .as_mut()
+            .unwrap()
+            .get_enriched_org_runners(owner, 1, 30)
+            .await;
+        match org_result {
+            Ok((mut org_runners, _)) => combined.append(&mut org_runners),
+            Err(JoltError::NotFound(_)) => {}
+            Err(e) => {
+                self.log_error(format!("Failed to load org runners for {owner}: {e}"));
+            }
+        }
+
+        let count = combined.len() as u64;
+        self.runners.runners.set_loaded(combined, count);
     }
 
     /// Log a warning to the sync activity log.
