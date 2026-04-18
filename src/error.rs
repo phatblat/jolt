@@ -10,8 +10,8 @@ pub enum JoltError {
     #[error("GitHub API error: {0}")]
     Api(#[from] reqwest::Error),
 
-    #[error("Authentication failed: invalid or expired token")]
-    Unauthorized,
+    #[error("Authentication failed: {0}")]
+    Unauthorized(String),
 
     #[error("Resource not found: {0}")]
     NotFound(String),
