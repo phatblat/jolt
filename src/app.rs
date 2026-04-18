@@ -395,19 +395,16 @@ impl App {
                             KeyCode::Enter => {
                                 self.handle_branch_switch().await;
                             }
-                            KeyCode::Up => {
-                                if !self.workflows.branch_history.is_empty() {
-                                    if self.workflows.branch_history_selection > 0 {
-                                        self.workflows.branch_history_selection -= 1;
-                                    }
-                                }
+                            KeyCode::Up
+                                if !self.workflows.branch_history.is_empty()
+                                    && self.workflows.branch_history_selection > 0 =>
+                            {
+                                self.workflows.branch_history_selection -= 1;
                             }
-                            KeyCode::Down => {
-                                if !self.workflows.branch_history.is_empty() {
-                                    let max = self.workflows.branch_history.len() - 1;
-                                    if self.workflows.branch_history_selection < max {
-                                        self.workflows.branch_history_selection += 1;
-                                    }
+                            KeyCode::Down if !self.workflows.branch_history.is_empty() => {
+                                let max = self.workflows.branch_history.len() - 1;
+                                if self.workflows.branch_history_selection < max {
+                                    self.workflows.branch_history_selection += 1;
                                 }
                             }
                             KeyCode::Backspace => {
@@ -2523,7 +2520,7 @@ impl App {
                     match result {
                         Ok((mut runs, count)) => {
                             // Sort by updated_at in descending order (newest first)
-                            runs.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+                            runs.sort_by_key(|r| std::cmp::Reverse(r.updated_at));
                             self.runners.runs.set_loaded(runs, count);
                         }
                         Err(e) => {
