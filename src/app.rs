@@ -2635,7 +2635,7 @@ impl App {
             .github_client
             .as_mut()
             .unwrap()
-            .get_enriched_runners(owner, repo, 1, 30)
+            .get_enriched_runners(owner, repo)
             .await;
         let mut combined = match repo_result {
             Ok((runners, _)) => runners,
@@ -2650,7 +2650,7 @@ impl App {
             .github_client
             .as_mut()
             .unwrap()
-            .get_enriched_org_runners(owner, 1, 30)
+            .get_enriched_org_runners(owner)
             .await;
         match org_result {
             Ok((mut org_runners, _)) => combined.append(&mut org_runners),

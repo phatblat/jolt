@@ -328,19 +328,27 @@ impl GitHubClient {
         enrichment_map
     }
 
-    /// Get enriched runners - returns runners immediately without enrichment data.
-    /// Enrichment data should be loaded separately using fetch_runner_enrichment_data.
+    /// Get every repo-level runner for `owner/repo`, paginating internally.
     pub async fn get_enriched_runners(
         &mut self,
         owner: &str,
         repo: &str,
-        page: u32,
-        per_page: u32,
     ) -> Result<(Vec<EnrichedRunner>, u64)> {
-        // Fetch runners and return immediately without enrichment
-        let (runners, total_count) = self.get_runners(owner, repo, page, per_page).await?;
+        let (first, total_count) = self.get_runners(owner, repo, 1, RUNNERS_PAGE_SIZE).await?;
+        let mut all = first;
+        let mut page = 2u32;
+        while (all.len() as u64) < total_count && page <= MAX_RUNNER_PAGES {
+            let (runners, _) = self
+                .get_runners(owner, repo, page, RUNNERS_PAGE_SIZE)
+                .await?;
+            if runners.is_empty() {
+                break;
+            }
+            all.extend(runners);
+            page += 1;
+        }
 
-        let enriched_runners = runners
+        let enriched = all
             .into_iter()
             .map(|runner| EnrichedRunner {
                 runner,
@@ -348,20 +356,27 @@ impl GitHubClient {
                 scope: RunnerScope::Repo,
             })
             .collect();
-
-        Ok((enriched_runners, total_count))
+        Ok((enriched, total_count))
     }
 
-    /// Get enriched org-level runners (tagged `RunnerScope::Org`).
+    /// Get every org-level runner for `org`, paginating internally.
     pub async fn get_enriched_org_runners(
         &mut self,
         org: &str,
-        page: u32,
-        per_page: u32,
     ) -> Result<(Vec<EnrichedRunner>, u64)> {
-        let (runners, total_count) = self.get_org_runners(org, page, per_page).await?;
+        let (first, total_count) = self.get_org_runners(org, 1, RUNNERS_PAGE_SIZE).await?;
+        let mut all = first;
+        let mut page = 2u32;
+        while (all.len() as u64) < total_count && page <= MAX_RUNNER_PAGES {
+            let (runners, _) = self.get_org_runners(org, page, RUNNERS_PAGE_SIZE).await?;
+            if runners.is_empty() {
+                break;
+            }
+            all.extend(runners);
+            page += 1;
+        }
 
-        let enriched_runners = runners
+        let enriched = all
             .into_iter()
             .map(|runner| EnrichedRunner {
                 runner,
@@ -369,7 +384,13 @@ impl GitHubClient {
                 scope: RunnerScope::Org,
             })
             .collect();
-
-        Ok((enriched_runners, total_count))
+        Ok((enriched, total_count))
     }
 }
+
+/// GitHub's max `per_page` for the runners endpoints.
+const RUNNERS_PAGE_SIZE: u32 = 100;
+
+/// Safety bound on pagination so a runaway loop can't spin forever if GitHub
+/// returns a non-decreasing page of results.
+const MAX_RUNNER_PAGES: u32 = 50;
