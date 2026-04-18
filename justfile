@@ -24,7 +24,7 @@ list:
     mise ls --local
 
 # Install dependencies
-install:
+tools:
     mise install
     cargo fetch
 

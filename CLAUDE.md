@@ -34,7 +34,7 @@ src/
 
 ```bash
 # Install Rust via mise
-just install
+just tools
 
 # Build debug binary
 just build
