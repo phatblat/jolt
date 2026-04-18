@@ -61,7 +61,7 @@ fn conclusion_color(conclusion: &Option<RunConclusion>) -> Color {
 
 /// Render a loading indicator.
 pub fn render_loading(frame: &mut Frame, area: Rect, message: &str) {
-    let text = Paragraph::new(format!("⏳ {}...", message))
+    let text = Paragraph::new(format!("⏳ {message}..."))
         .alignment(Alignment::Center)
         .style(Style::default().fg(Color::Yellow));
     frame.render_widget(text, area);
@@ -69,7 +69,7 @@ pub fn render_loading(frame: &mut Frame, area: Rect, message: &str) {
 
 /// Render an error message.
 pub fn render_error(frame: &mut Frame, area: Rect, error: &str) {
-    let text = Paragraph::new(format!("❌ {}", error))
+    let text = Paragraph::new(format!("❌ {error}"))
         .alignment(Alignment::Center)
         .style(Style::default().fg(Color::Red));
     frame.render_widget(text, area);
@@ -179,10 +179,10 @@ pub fn render_repositories_list(
                         let visibility = if repo.private { "🔒" } else { "🌐" };
                         let updated = format_relative_time(&repo.updated_at);
                         ListItem::new(Line::from(vec![
-                            Span::raw(format!("{}{} ", star, visibility)),
+                            Span::raw(format!("{star}{visibility} ")),
                             Span::styled(&repo.name, Style::default().fg(Color::Cyan)),
                             Span::styled(
-                                format!("  {}", updated),
+                                format!("  {updated}"),
                                 Style::default().fg(Color::DarkGray),
                             ),
                         ]))
@@ -246,13 +246,13 @@ pub fn render_runner_repositories_list(
                         let visibility = if repo.private { "🔒" } else { "🌐" };
                         let updated = format_relative_time(&repo.updated_at);
                         ListItem::new(Line::from(vec![
-                            Span::raw(format!("{}{} ", star, visibility)),
+                            Span::raw(format!("{star}{visibility} ")),
                             Span::styled(
                                 format!("{}/{}", repo.owner.login, repo.name),
                                 Style::default().fg(Color::Cyan),
                             ),
                             Span::styled(
-                                format!("  {}", updated),
+                                format!("  {updated}"),
                                 Style::default().fg(Color::DarkGray),
                             ),
                         ]))
@@ -321,7 +321,7 @@ pub fn render_workflows_list(
                             Span::raw(star),
                             Span::styled(&workflow.name, Style::default().fg(Color::Cyan)),
                             Span::styled(
-                                format!("  {}", filename),
+                                format!("  {filename}"),
                                 Style::default().fg(Color::DarkGray),
                             ),
                         ]))
@@ -378,20 +378,17 @@ pub fn render_runs_list(
                         let time = format_relative_time(&run.created_at);
 
                         let mut spans = vec![
-                            Span::raw(format!("{} ", status_icon)),
+                            Span::raw(format!("{status_icon} ")),
                             Span::styled(
                                 format!("#{}", run.run_number),
                                 Style::default().fg(color),
                             ),
-                            Span::styled(
-                                format!("  {}", time),
-                                Style::default().fg(Color::DarkGray),
-                            ),
+                            Span::styled(format!("  {time}"), Style::default().fg(Color::DarkGray)),
                         ];
 
                         if let Some(branch) = &run.head_branch {
                             spans.push(Span::styled(
-                                format!("  {}", branch),
+                                format!("  {branch}"),
                                 Style::default().fg(Color::Magenta),
                             ));
                         }
@@ -416,7 +413,7 @@ pub fn render_runs_list(
                     .block(
                         Block::default()
                             .borders(Borders::ALL)
-                            .title(format!(" {} ", title)),
+                            .title(format!(" {title} ")),
                     )
                     .highlight_style(
                         Style::default()
@@ -495,10 +492,10 @@ pub fn render_jobs_list(
 
                         let mut first_line = vec![
                             Span::raw(indent),
-                            Span::raw(format!("{} ", status_icon)),
+                            Span::raw(format!("{status_icon} ")),
                             Span::styled(&job.name, Style::default().fg(color)),
                             Span::styled(
-                                format!("  {}", duration),
+                                format!("  {duration}"),
                                 Style::default().fg(Color::DarkGray),
                             ),
                         ];
@@ -537,7 +534,7 @@ pub fn render_jobs_list(
                             // For completed jobs, show runner on same line
                             if let Some(runner) = &job.runner_name {
                                 first_line.push(Span::styled(
-                                    format!("  @ {}", runner),
+                                    format!("  @ {runner}"),
                                     Style::default().fg(Color::Cyan),
                                 ));
                             }
@@ -630,7 +627,7 @@ pub fn render_runners_list(
 
                                 // PR number
                                 if let Some(pr) = job_info.pr_number {
-                                    parts.push(format!("PR #{}", pr));
+                                    parts.push(format!("PR #{pr}"));
                                 }
 
                                 // Branch name (truncate if too long)
@@ -662,7 +659,7 @@ pub fn render_runners_list(
                         };
 
                         ListItem::new(Line::from(vec![
-                            Span::raw(format!("{}{} ", star, status_icon)),
+                            Span::raw(format!("{star}{status_icon} ")),
                             Span::styled(&runner.name, Style::default().fg(status_color)),
                             Span::styled(
                                 format!("  {}", runner.os),

@@ -56,11 +56,11 @@ impl ViewLevel {
     pub fn title(&self) -> String {
         match self {
             ViewLevel::Owners => "Owners".to_string(),
-            ViewLevel::Repositories { owner } => format!("{} / Repositories", owner),
-            ViewLevel::Workflows { owner, repo } => format!("{}/{} / Workflows", owner, repo),
-            ViewLevel::Runs { workflow_name, .. } => format!("{} / Runs", workflow_name),
-            ViewLevel::Jobs { run_number, .. } => format!("Run #{} / Jobs", run_number),
-            ViewLevel::Logs { job_name, .. } => format!("{} / Logs", job_name),
+            ViewLevel::Repositories { owner } => format!("{owner} / Repositories"),
+            ViewLevel::Workflows { owner, repo } => format!("{owner}/{repo} / Workflows"),
+            ViewLevel::Runs { workflow_name, .. } => format!("{workflow_name} / Runs"),
+            ViewLevel::Jobs { run_number, .. } => format!("Run #{run_number} / Jobs"),
+            ViewLevel::Logs { job_name, .. } => format!("{job_name} / Logs"),
         }
     }
 
@@ -71,7 +71,7 @@ impl ViewLevel {
             ViewLevel::Repositories { owner } => owner.clone(),
             ViewLevel::Workflows { repo, .. } => repo.clone(),
             ViewLevel::Runs { workflow_name, .. } => workflow_name.clone(),
-            ViewLevel::Jobs { run_number, .. } => format!("#{}", run_number),
+            ViewLevel::Jobs { run_number, .. } => format!("#{run_number}"),
             ViewLevel::Logs { job_name, .. } => job_name.clone(),
         };
         BreadcrumbNode {

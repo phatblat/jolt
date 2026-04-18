@@ -246,7 +246,7 @@ fn draw_runners_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
                             _ => ("⚪", Color::DarkGray),
                         };
                         lines.push(Line::from(vec![
-                            Span::raw(format!("  {} ", icon)),
+                            Span::raw(format!("  {icon} ")),
                             Span::styled(&step.name, Style::default().fg(color)),
                         ]));
                     }
@@ -274,7 +274,7 @@ fn draw_runners_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
             } else {
                 vec![
                     Line::from(Span::styled(
-                        format!("❌ {}", e),
+                        format!("❌ {e}"),
                         Style::default().fg(Color::Red),
                     )),
                     Line::from(""),
@@ -399,7 +399,7 @@ fn draw_runners_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
                     let line_num_display = if is_in_session {
                         "   🔖 │ ".to_string()
                     } else {
-                        format!("{:>5} │ ", line_num)
+                        format!("{line_num:>5} │ ")
                     };
 
                     Line::from(vec![
@@ -584,7 +584,7 @@ fn draw_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
                             _ => ("⚪", Color::DarkGray),
                         };
                         lines.push(Line::from(vec![
-                            Span::raw(format!("  {} ", icon)),
+                            Span::raw(format!("  {icon} ")),
                             Span::styled(&step.name, Style::default().fg(color)),
                         ]));
                     }
@@ -612,7 +612,7 @@ fn draw_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
             } else {
                 vec![
                     Line::from(Span::styled(
-                        format!("❌ {}", e),
+                        format!("❌ {e}"),
                         Style::default().fg(Color::Red),
                     )),
                     Line::from(""),
@@ -737,7 +737,7 @@ fn draw_log_viewer(frame: &mut Frame, app: &App, area: Rect) {
                     let line_num_display = if is_in_session {
                         "   🔖 │ ".to_string()
                     } else {
-                        format!("{:>5} │ ", line_num)
+                        format!("{line_num:>5} │ ")
                     };
 
                     Line::from(vec![
@@ -881,7 +881,7 @@ fn draw_analyze_detail(frame: &mut Frame, app: &App, session_id: &str, area: Rec
                 Style::default().fg(Color::Cyan),
             ),
             if let Some(branch) = &meta.branch_name {
-                Span::styled(format!("  {}", branch), Style::default().fg(Color::Magenta))
+                Span::styled(format!("  {branch}"), Style::default().fg(Color::Magenta))
             } else {
                 Span::raw("")
             },
@@ -904,7 +904,7 @@ fn draw_analyze_detail(frame: &mut Frame, app: &App, session_id: &str, area: Rec
             let line_num = session.excerpt_start_line + i + 1;
             Line::from(vec![
                 Span::styled(
-                    format!("{:>6} │ ", line_num),
+                    format!("{line_num:>6} │ "),
                     Style::default().fg(Color::DarkGray),
                 ),
                 Span::raw(line),
@@ -967,7 +967,7 @@ fn draw_sync_status(frame: &mut Frame, app: &App, area: Rect) {
             Span::styled("Phase: ", Style::default().fg(Color::DarkGray)),
             Span::styled(progress.phase.display(), Style::default().fg(Color::Cyan)),
             if let Some(item) = &progress.current_item {
-                Span::styled(format!(" - {}", item), Style::default().fg(Color::White))
+                Span::styled(format!(" - {item}"), Style::default().fg(Color::White))
             } else {
                 Span::raw("")
             },
@@ -1037,7 +1037,7 @@ fn draw_sync_activity_log(frame: &mut Frame, app: &mut App, area: Rect) {
                 let time = list::format_relative_time(&msg.timestamp);
 
                 ListItem::new(Line::from(vec![
-                    Span::raw(format!("{} ", icon)),
+                    Span::raw(format!("{icon} ")),
                     Span::styled(time, Style::default().fg(Color::DarkGray)),
                     Span::raw(" "),
                     Span::styled(msg.message.clone(), Style::default().fg(color)),

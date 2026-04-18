@@ -26,7 +26,7 @@ impl GitHubClient {
 
         headers.insert(
             AUTHORIZATION,
-            HeaderValue::from_str(&format!("Bearer {}", token))
+            HeaderValue::from_str(&format!("Bearer {token}"))
                 .map_err(|e| JoltError::Other(e.to_string()))?,
         );
         headers.insert(
@@ -63,7 +63,7 @@ impl GitHubClient {
 
     /// Make a GET request to the GitHub API.
     pub async fn get(&mut self, endpoint: &str) -> Result<Response> {
-        let url = format!("{}{}", GITHUB_API_BASE, endpoint);
+        let url = format!("{GITHUB_API_BASE}{endpoint}");
         let response = self.client.get(&url).send().await.map_err(JoltError::Api)?;
 
         self.update_rate_limit(&response);
@@ -76,7 +76,7 @@ impl GitHubClient {
         endpoint: &str,
         params: &T,
     ) -> Result<Response> {
-        let url = format!("{}{}", GITHUB_API_BASE, endpoint);
+        let url = format!("{GITHUB_API_BASE}{endpoint}");
         let response = self
             .client
             .get(&url)

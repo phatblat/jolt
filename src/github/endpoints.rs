@@ -21,7 +21,7 @@ async fn parse_json<T: DeserializeOwned>(response: Response) -> Result<T> {
         } else {
             text.clone()
         };
-        JoltError::Other(format!("JSON parse error: {}. Response: {}", e, preview))
+        JoltError::Other(format!("JSON parse error: {e}. Response: {preview}"))
     })
 }
 
@@ -92,14 +92,14 @@ impl GitHubClient {
             ("per_page", &per_page.to_string()),
         ];
         let response = self
-            .get_with_params(&format!("/orgs/{}/repos", org), &params)
+            .get_with_params(&format!("/orgs/{org}/repos"), &params)
             .await?;
         parse_json(response).await
     }
 
     /// Get a specific repository.
     pub async fn get_repo(&mut self, owner: &str, repo: &str) -> Result<Repository> {
-        let response = self.get(&format!("/repos/{}/{}", owner, repo)).await?;
+        let response = self.get(&format!("/repos/{owner}/{repo}")).await?;
         parse_json(response).await
     }
 
@@ -116,10 +116,7 @@ impl GitHubClient {
             ("per_page", &per_page.to_string()),
         ];
         let response = self
-            .get_with_params(
-                &format!("/repos/{}/{}/actions/workflows", owner, repo),
-                &params,
-            )
+            .get_with_params(&format!("/repos/{owner}/{repo}/actions/workflows"), &params)
             .await?;
         let wrapper: WorkflowsResponse = parse_json(response).await?;
         Ok((wrapper.workflows, wrapper.total_count))
@@ -138,7 +135,7 @@ impl GitHubClient {
             ("per_page", &per_page.to_string()),
         ];
         let response = self
-            .get_with_params(&format!("/repos/{}/{}/actions/runs", owner, repo), &params)
+            .get_with_params(&format!("/repos/{owner}/{repo}/actions/runs"), &params)
             .await?;
         let wrapper: WorkflowRunsResponse = parse_json(response).await?;
         Ok((wrapper.workflow_runs, wrapper.total_count))
@@ -165,10 +162,7 @@ impl GitHubClient {
 
         let response = self
             .get_with_params(
-                &format!(
-                    "/repos/{}/{}/actions/workflows/{}/runs",
-                    owner, repo, workflow_id
-                ),
+                &format!("/repos/{owner}/{repo}/actions/workflows/{workflow_id}/runs"),
                 &params,
             )
             .await?;
@@ -184,10 +178,7 @@ impl GitHubClient {
         run_id: u64,
     ) -> Result<WorkflowRun> {
         let response = self
-            .get(&format!(
-                "/repos/{}/{}/actions/runs/{}",
-                owner, repo, run_id
-            ))
+            .get(&format!("/repos/{owner}/{repo}/actions/runs/{run_id}"))
             .await?;
         parse_json(response).await
     }
@@ -207,7 +198,7 @@ impl GitHubClient {
         ];
         let response = self
             .get_with_params(
-                &format!("/repos/{}/{}/actions/runs/{}/jobs", owner, repo, run_id),
+                &format!("/repos/{owner}/{repo}/actions/runs/{run_id}/jobs"),
                 &params,
             )
             .await?;
@@ -219,10 +210,7 @@ impl GitHubClient {
     /// Returns a user-friendly error if logs are not available.
     pub async fn get_job_logs(&mut self, owner: &str, repo: &str, job_id: u64) -> Result<String> {
         let result = self
-            .get(&format!(
-                "/repos/{}/{}/actions/jobs/{}/logs",
-                owner, repo, job_id
-            ))
+            .get(&format!("/repos/{owner}/{repo}/actions/jobs/{job_id}/logs"))
             .await;
 
         match result {
@@ -245,7 +233,7 @@ impl GitHubClient {
     ) -> Result<Vec<WorkflowRun>> {
         let params = [("status", "in_progress"), ("per_page", "100")];
         let response = self
-            .get_with_params(&format!("/repos/{}/{}/actions/runs", owner, repo), &params)
+            .get_with_params(&format!("/repos/{owner}/{repo}/actions/runs"), &params)
             .await?;
         let wrapper: WorkflowRunsResponse = parse_json(response).await?;
         Ok(wrapper.workflow_runs)
@@ -264,10 +252,7 @@ impl GitHubClient {
             ("per_page", &per_page.to_string()),
         ];
         let response = self
-            .get_with_params(
-                &format!("/repos/{}/{}/actions/runners", owner, repo),
-                &params,
-            )
+            .get_with_params(&format!("/repos/{owner}/{repo}/actions/runners"), &params)
             .await?;
         let wrapper: RunnersResponse = parse_json(response).await?;
         Ok((wrapper.runners, wrapper.total_count))
@@ -307,17 +292,18 @@ impl GitHubClient {
         // Build map of runner name to job info for in-progress jobs
         for (job, run) in all_jobs {
             if matches!(job.status, RunStatus::InProgress)
-                && let Some(runner_name) = job.runner_name {
-                    enrichment_map.insert(
-                        runner_name,
-                        RunnerJobInfo {
-                            pr_number: run.pull_requests.first().map(|pr| pr.number),
-                            branch: run.head_branch.clone(),
-                            started_at: job.started_at,
-                            job_name: job.name.clone(),
-                        },
-                    );
-                }
+                && let Some(runner_name) = job.runner_name
+            {
+                enrichment_map.insert(
+                    runner_name,
+                    RunnerJobInfo {
+                        pr_number: run.pull_requests.first().map(|pr| pr.number),
+                        branch: run.head_branch.clone(),
+                        started_at: job.started_at,
+                        job_name: job.name.clone(),
+                    },
+                );
+            }
         }
 
         enrichment_map

@@ -250,9 +250,10 @@ impl AnalyzeTabState {
         self.sessions.retain(|s| s.id != id);
         // Adjust selection if needed
         if let Some(selected) = self.list_state.selected()
-            && selected >= self.sessions.len() {
-                self.reset_selection();
-            }
+            && selected >= self.sessions.len()
+        {
+            self.reset_selection();
+        }
     }
 
     /// Find session by ID.

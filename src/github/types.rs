@@ -191,8 +191,7 @@ impl JobGroup {
             groups.entry(job.name.clone()).or_default().push(job);
         }
 
-        let mut result: Vec<JobGroup> = groups.into_values().map(JobGroup::from_jobs)
-            .collect();
+        let mut result: Vec<JobGroup> = groups.into_values().map(JobGroup::from_jobs).collect();
 
         // Sort by job name
         result.sort_by(|a, b| a.latest.name.cmp(&b.latest.name));

@@ -179,7 +179,7 @@ impl App {
             Ok(client) => Some(client),
             Err(e) => {
                 // Will show error in console tab
-                eprintln!("GitHub client error: {}", e);
+                eprintln!("GitHub client error: {e}");
                 None
             }
         };
@@ -199,17 +199,19 @@ impl App {
 
         // Restore log view state for current job if viewing logs
         if let ViewLevel::Logs { job_id, .. } = workflows.nav.current()
-            && let Some(state) = persisted.log_view_states.get(job_id) {
-                workflows.log_selection_anchor = state.selection_anchor;
-                workflows.log_selection_cursor = state.selection_cursor;
-                workflows.log_scroll_y = state.scroll_y;
-            }
+            && let Some(state) = persisted.log_view_states.get(job_id)
+        {
+            workflows.log_selection_anchor = state.selection_anchor;
+            workflows.log_selection_cursor = state.selection_cursor;
+            workflows.log_scroll_y = state.scroll_y;
+        }
         if let RunnersViewLevel::Logs { job_id, .. } = runners.nav.current()
-            && let Some(state) = persisted.log_view_states.get(job_id) {
-                runners.log_selection_anchor = state.selection_anchor;
-                runners.log_selection_cursor = state.selection_cursor;
-                runners.log_scroll_y = state.scroll_y;
-            }
+            && let Some(state) = persisted.log_view_states.get(job_id)
+        {
+            runners.log_selection_anchor = state.selection_anchor;
+            runners.log_selection_cursor = state.selection_cursor;
+            runners.log_scroll_y = state.scroll_y;
+        }
 
         Self {
             active_tab: persisted.active_tab,
@@ -860,7 +862,7 @@ impl App {
         #[allow(clippy::collapsible_if)]
         if let Some(url) = url {
             if let Err(e) = std::process::Command::new("open").arg(&url).spawn() {
-                self.log_error(format!("Failed to open browser: {}", e));
+                self.log_error(format!("Failed to open browser: {e}"));
             }
         }
     }
@@ -1031,10 +1033,8 @@ impl App {
         };
 
         // Build GitHub URL
-        let github_url = format!(
-            "https://github.com/{}/{}/actions/runs/{}/job/{}",
-            owner, repo, run_id, job_id
-        );
+        let github_url =
+            format!("https://github.com/{owner}/{repo}/actions/runs/{run_id}/job/{job_id}");
 
         // Create and add session
         let session = AnalysisSession::new(
@@ -1141,10 +1141,8 @@ impl App {
         };
 
         // Build GitHub URL
-        let github_url = format!(
-            "https://github.com/{}/{}/actions/runs/{}/job/{}",
-            owner, repo, run_id, job_id
-        );
+        let github_url =
+            format!("https://github.com/{owner}/{repo}/actions/runs/{run_id}/job/{job_id}");
 
         // Create and add session
         let session = AnalysisSession::new(
@@ -1708,8 +1706,7 @@ impl App {
                 job_id,
                 ..
             } => Some(format!(
-                "https://github.com/{}/{}/actions/runs/{}/job/{}",
-                owner, repo, run_id, job_id
+                "https://github.com/{owner}/{repo}/actions/runs/{run_id}/job/{job_id}"
             )),
         }
     }
@@ -1737,8 +1734,7 @@ impl App {
                     .map(|repo| format!("https://github.com/{}/{}", repo.owner.login, repo.name))
             }
             RunnersViewLevel::Runners { owner, repo } => Some(format!(
-                "https://github.com/{}/{}/settings/actions/runners",
-                owner, repo
+                "https://github.com/{owner}/{repo}/settings/actions/runners"
             )),
             RunnersViewLevel::Runs { owner, repo, .. } => {
                 self.runners.runs.selected_item().map(|run| {
@@ -1766,8 +1762,7 @@ impl App {
                 job_id,
                 ..
             } => Some(format!(
-                "https://github.com/{}/{}/actions/runs/{}/job/{}",
-                owner, repo, run_id, job_id
+                "https://github.com/{owner}/{repo}/actions/runs/{run_id}/job/{job_id}"
             )),
         }
     }
@@ -2159,11 +2154,12 @@ impl App {
                 // Try to load from cache first
                 if let Some(path) = cache::owners_list_path()
                     && let Ok(Some(cached)) = cache::read_cached::<Vec<crate::github::Owner>>(&path)
-                        && cached.is_valid(cache::DEFAULT_TTL) {
-                            let count = cached.data.len() as u64;
-                            self.workflows.owners.set_loaded(cached.data, count);
-                            return;
-                        }
+                    && cached.is_valid(cache::DEFAULT_TTL)
+                {
+                    let count = cached.data.len() as u64;
+                    self.workflows.owners.set_loaded(cached.data, count);
+                    return;
+                }
                 // No valid cache, fetch from API
                 self.workflows.owners.set_loading();
                 let result = Self::fetch_owners(self.github_client.as_mut().unwrap()).await;
@@ -2176,7 +2172,7 @@ impl App {
                     }
                     Err(e) => {
                         self.workflows.owners.set_error(e.to_string());
-                        self.log_error(format!("Failed to load owners: {}", e));
+                        self.log_error(format!("Failed to load owners: {e}"));
                     }
                 }
             }
@@ -2189,11 +2185,12 @@ impl App {
                 if let Some(path) = cache::repos_list_path(&owner)
                     && let Ok(Some(cached)) =
                         cache::read_cached::<Vec<crate::github::Repository>>(&path)
-                        && cached.is_valid(cache::DEFAULT_TTL) {
-                            let count = cached.data.len() as u64;
-                            self.workflows.repositories.set_loaded(cached.data, count);
-                            return;
-                        }
+                    && cached.is_valid(cache::DEFAULT_TTL)
+                {
+                    let count = cached.data.len() as u64;
+                    self.workflows.repositories.set_loaded(cached.data, count);
+                    return;
+                }
                 // No valid cache, fetch from API
                 self.workflows.repositories.set_loading();
                 let result =
@@ -2207,7 +2204,7 @@ impl App {
                     }
                     Err(e) => {
                         self.workflows.repositories.set_error(e.to_string());
-                        self.log_error(format!("Failed to load repositories: {}", e));
+                        self.log_error(format!("Failed to load repositories: {e}"));
                     }
                 }
             }
@@ -2224,11 +2221,12 @@ impl App {
                 if let Some(path) = cache::workflows_list_path(&owner, &repo)
                     && let Ok(Some(cached)) =
                         cache::read_cached::<Vec<crate::github::Workflow>>(&path)
-                        && cached.is_valid(cache::DEFAULT_TTL) {
-                            let count = cached.data.len() as u64;
-                            self.workflows.workflows.set_loaded(cached.data, count);
-                            return;
-                        }
+                    && cached.is_valid(cache::DEFAULT_TTL)
+                {
+                    let count = cached.data.len() as u64;
+                    self.workflows.workflows.set_loaded(cached.data, count);
+                    return;
+                }
                 // No valid cache, fetch from API
                 self.workflows.workflows.set_loading();
                 let result = self
@@ -2246,7 +2244,7 @@ impl App {
                     }
                     Err(e) => {
                         self.workflows.workflows.set_error(e.to_string());
-                        self.log_error(format!("Failed to load workflows: {}", e));
+                        self.log_error(format!("Failed to load workflows: {e}"));
                     }
                 }
             }
@@ -2265,11 +2263,12 @@ impl App {
                 if let Some(path) = cache::runs_list_path(&owner, &repo, workflow_id)
                     && let Ok(Some(cached)) =
                         cache::read_cached::<Vec<crate::github::WorkflowRun>>(&path)
-                        && cached.is_valid(cache::DEFAULT_TTL) {
-                            let count = cached.data.len() as u64;
-                            self.workflows.runs.set_loaded(cached.data, count);
-                            return;
-                        }
+                    && cached.is_valid(cache::DEFAULT_TTL)
+                {
+                    let count = cached.data.len() as u64;
+                    self.workflows.runs.set_loaded(cached.data, count);
+                    return;
+                }
                 // No valid cache, fetch from API
                 self.workflows.runs.set_loading();
                 let branch = self.workflows.current_branch.as_deref();
@@ -2288,7 +2287,7 @@ impl App {
                     }
                     Err(e) => {
                         self.workflows.runs.set_error(e.to_string());
-                        self.log_error(format!("Failed to load runs: {}", e));
+                        self.log_error(format!("Failed to load runs: {e}"));
                     }
                 }
             }
@@ -2307,16 +2306,16 @@ impl App {
                 // Try to load from cache first
                 if let Some(path) = cache::jobs_list_path(&owner, &repo, workflow_id, run_id)
                     && let Ok(Some(cached)) = cache::read_cached::<Vec<crate::github::Job>>(&path)
-                        && cached.is_valid(cache::DEFAULT_TTL) {
-                            let count = cached.data.len() as u64;
-                            self.workflows.jobs.set_loaded(cached.data.clone(), count);
-                            // Group jobs by name and create flattened list
-                            self.workflows.job_groups =
-                                crate::github::JobGroup::group_by_name(cached.data);
-                            self.workflows.job_list_items =
-                                crate::github::JobListItem::flatten(&self.workflows.job_groups);
-                            return;
-                        }
+                    && cached.is_valid(cache::DEFAULT_TTL)
+                {
+                    let count = cached.data.len() as u64;
+                    self.workflows.jobs.set_loaded(cached.data.clone(), count);
+                    // Group jobs by name and create flattened list
+                    self.workflows.job_groups = crate::github::JobGroup::group_by_name(cached.data);
+                    self.workflows.job_list_items =
+                        crate::github::JobListItem::flatten(&self.workflows.job_groups);
+                    return;
+                }
                 // No valid cache, fetch from API
                 self.workflows.jobs.set_loading();
                 let result = self
@@ -2340,7 +2339,7 @@ impl App {
                     }
                     Err(e) => {
                         self.workflows.jobs.set_error(e.to_string());
-                        self.log_error(format!("Failed to load jobs: {}", e));
+                        self.log_error(format!("Failed to load jobs: {e}"));
                     }
                 }
             }
@@ -2359,10 +2358,11 @@ impl App {
                 let repo = repo.clone();
                 // Try to load from cache first (logs are immutable once job completes)
                 if let Some(path) = cache::job_log_path(&owner, &repo, workflow_id, run_id, job_id)
-                    && let Ok(Some(logs)) = cache::read_text(&path) {
-                        self.workflows.log_content = LoadingState::Loaded(logs);
-                        return;
-                    }
+                    && let Ok(Some(logs)) = cache::read_text(&path)
+                {
+                    self.workflows.log_content = LoadingState::Loaded(logs);
+                    return;
+                }
                 // No cache, fetch from API
                 self.workflows.log_content = LoadingState::Loading;
                 let result = self
@@ -2382,7 +2382,7 @@ impl App {
                     }
                     Err(e) => {
                         self.workflows.log_content = LoadingState::Error(e.to_string());
-                        self.log_error(format!("Failed to load logs: {}", e));
+                        self.log_error(format!("Failed to load logs: {e}"));
                     }
                 }
             }
@@ -2443,11 +2443,12 @@ impl App {
                 if let Some(path) = cache::runners_repos_path()
                     && let Ok(Some(cached)) =
                         cache::read_cached::<Vec<crate::github::Repository>>(&path)
-                        && cached.is_valid(cache::DEFAULT_TTL) {
-                            let count = cached.data.len() as u64;
-                            self.runners.repositories.set_loaded(cached.data, count);
-                            return;
-                        }
+                    && cached.is_valid(cache::DEFAULT_TTL)
+                {
+                    let count = cached.data.len() as u64;
+                    self.runners.repositories.set_loaded(cached.data, count);
+                    return;
+                }
                 // No valid cache, fetch from API
                 self.runners.repositories.set_loading();
                 let result = self
@@ -2466,7 +2467,7 @@ impl App {
                     }
                     Err(e) => {
                         self.runners.repositories.set_error(e.to_string());
-                        self.log_error(format!("Failed to load repositories: {}", e));
+                        self.log_error(format!("Failed to load repositories: {e}"));
                     }
                 }
             }
@@ -2498,7 +2499,7 @@ impl App {
                         }
                         Err(e) => {
                             self.runners.runners.set_error(e.to_string());
-                            self.log_error(format!("Failed to load runners: {}", e));
+                            self.log_error(format!("Failed to load runners: {e}"));
                         }
                     }
                 }
@@ -2527,7 +2528,7 @@ impl App {
                         }
                         Err(e) => {
                             self.runners.runs.set_error(e.to_string());
-                            self.log_error(format!("Failed to load runs: {}", e));
+                            self.log_error(format!("Failed to load runs: {e}"));
                         }
                     }
                 }
@@ -2558,7 +2559,7 @@ impl App {
                         }
                         Err(e) => {
                             self.runners.jobs.set_error(e.to_string());
-                            self.log_error(format!("Failed to load jobs: {}", e));
+                            self.log_error(format!("Failed to load jobs: {e}"));
                         }
                     }
                 }
@@ -2585,7 +2586,7 @@ impl App {
                         }
                         Err(e) => {
                             self.runners.log_content = LoadingState::Error(e.to_string());
-                            self.log_error(format!("Failed to load logs: {}", e));
+                            self.log_error(format!("Failed to load logs: {e}"));
                         }
                     }
                 }
@@ -2597,11 +2598,12 @@ impl App {
     fn handle_branch_modal_open(&mut self) {
         // Only open modal in Workflows tab when viewing workflows
         if self.active_tab == Tab::Workflows
-            && matches!(self.workflows.nav.current(), ViewLevel::Workflows { .. }) {
-                self.workflows.branch_modal_visible = true;
-                self.workflows.branch_input.clear();
-                self.workflows.branch_history_selection = 0;
-            }
+            && matches!(self.workflows.nav.current(), ViewLevel::Workflows { .. })
+        {
+            self.workflows.branch_modal_visible = true;
+            self.workflows.branch_input.clear();
+            self.workflows.branch_history_selection = 0;
+        }
     }
 
     /// Handle branch switch from modal.

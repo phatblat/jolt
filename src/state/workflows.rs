@@ -437,12 +437,13 @@ impl WorkflowsTabState {
     /// Move selection cursor up (with optional extend for shift+up).
     pub fn selection_up(&mut self, extend: bool) {
         if let LoadingState::Loaded(_) = &self.log_content
-            && self.log_selection_cursor > 0 {
-                self.log_selection_cursor -= 1;
-                if !extend {
-                    self.log_selection_anchor = self.log_selection_cursor;
-                }
+            && self.log_selection_cursor > 0
+        {
+            self.log_selection_cursor -= 1;
+            if !extend {
+                self.log_selection_anchor = self.log_selection_cursor;
             }
+        }
     }
 
     /// Move selection cursor down (with optional extend for shift+down).
