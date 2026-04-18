@@ -1,41 +1,27 @@
-# Environment
-.envrc
 
-# Rust
-/target
 **/*.rs.bk
-Cargo.lock
-
-# macOS
-.DS_Store
+*.swo
+*.swp
+*~
+.AppleDB
+.AppleDesktop
 .AppleDouble
-.LSOverride
-Icon
-._*
+.DS_Store
 .DocumentRevisions-V100
-.fseventsd
+.LSOverride
 .Spotlight-V100
 .TemporaryItems
 .Trashes
 .VolumeIcon.icns
-.com.apple.timemachine.donotpresent
-.AppleDB
-.AppleDesktop
-Network Trash Folder
-Temporary Items
+._*
 .apdisk
-
-# IDEs
-.vscode/
+.com.apple.timemachine.donotpresent
+.env
+.fseventsd
 .idea/
-*.swp
-*.swo
-*~
-
-# Auto Claude data directory
-.auto-claude/
-
-# Gas Town (added by gt)
-.runtime/
-.claude/commands/
 .logs/
+.runtime/
+.vscode/
+/target
+Cargo.lock
+Icon
