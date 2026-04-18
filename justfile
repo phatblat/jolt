@@ -53,6 +53,10 @@ build:
 build-release:
     cargo build --release
 
+# Build and install the release binary via cargo install
+install: build-release
+    cargo install --path .
+
 # Run tests
 test:
     cargo test
