@@ -2096,6 +2096,13 @@ impl App {
                 self.load_current_view().await;
             }
             Tab::Runners => {
+                if matches!(
+                    self.runners.current_view(),
+                    RunnersViewLevel::Repositories
+                ) && let Some(path) = cache::runners_repos_path()
+                {
+                    let _ = cache::delete(&path);
+                }
                 self.runners.clear_current();
                 self.load_runners_view().await;
             }
@@ -2440,21 +2447,60 @@ impl App {
                     self.runners.repositories.set_loaded(cached.data, count);
                     return;
                 }
-                // No valid cache, fetch from API
+                // No valid cache — fetch repos, then filter to those with self-hosted runners
                 self.runners.repositories.set_loading();
                 let result = self
                     .github_client
                     .as_mut()
                     .unwrap()
-                    .get_user_repos(1, 30)
+                    .get_user_repos(1, 100)
                     .await;
                 match result {
                     Ok(repos) => {
-                        if let Some(path) = cache::runners_repos_path() {
-                            let _ = cache::write_cached(&path, &repos, false);
+                        let client = self.github_client.as_mut().unwrap();
+                        // Cache org-level runner status per owner (one API call each)
+                        // None = not checked yet, Some(true/false) = has/no org runners
+                        // Errors (403/404) → None (unknown), so repos are included
+                        let mut org_runner_cache: std::collections::HashMap<String, Option<bool>> =
+                            std::collections::HashMap::new();
+                        let mut with_runners = Vec::new();
+                        for repo in repos {
+                            let owner = &repo.owner.login;
+                            let org_status =
+                                if let Some(&cached) = org_runner_cache.get(owner) {
+                                    cached
+                                } else {
+                                    let status = match client.get_org_runners(owner, 1, 1).await {
+                                        Ok((_, count)) => Some(count > 0),
+                                        Err(_) => None,
+                                    };
+                                    org_runner_cache.insert(owner.clone(), status);
+                                    status
+                                };
+                            // Org has runners → include repo
+                            if org_status == Some(true) {
+                                with_runners.push(repo);
+                                continue;
+                            }
+                            // Org definitively has zero runners → check repo-level
+                            if org_status == Some(false) {
+                                match client.get_runners(owner, &repo.name, 1, 1).await {
+                                    Ok((_, 0)) => continue, // confirmed zero
+                                    Ok(_) => {
+                                        with_runners.push(repo);
+                                        continue;
+                                    }
+                                    Err(_) => {} // fall through to include
+                                }
+                            }
+                            // Unknown (API errors) → include to avoid hiding repos
+                            with_runners.push(repo);
                         }
-                        let count = repos.len() as u64;
-                        self.runners.repositories.set_loaded(repos, count);
+                        if let Some(path) = cache::runners_repos_path() {
+                            let _ = cache::write_cached(&path, &with_runners, false);
+                        }
+                        let count = with_runners.len() as u64;
+                        self.runners.repositories.set_loaded(with_runners, count);
                     }
                     Err(e) => {
                         self.runners.repositories.set_error(e.to_string());
