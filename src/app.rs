@@ -2674,18 +2674,25 @@ impl App {
     /// Repo fetch errors are fatal; org fetch errors are logged (404 is silent — owner is
     /// likely a user account, not an org).
     async fn load_combined_runners(&mut self, owner: &str, repo: &str) {
-        let repo_result = self
+        self.log_info(format!("Loading runners for {owner}/{repo}"));
+        let mut combined = match self
             .github_client
             .as_mut()
             .unwrap()
             .get_enriched_runners(owner, repo)
-            .await;
-        let mut combined = match repo_result {
-            Ok((runners, _)) => runners,
+            .await
+        {
+            Ok((runners, _)) => {
+                self.log_info(format!("Repo runners: {}", runners.len()));
+                runners
+            }
+            Err(JoltError::NotFound(_)) => {
+                self.log_info(format!("No repo-level runners endpoint for {owner}/{repo}"));
+                Vec::new()
+            }
             Err(e) => {
-                self.runners.runners.set_error(e.to_string());
-                self.log_error(format!("Failed to load runners: {e}"));
-                return;
+                self.log_error(format!("Failed to load repo runners: {e}"));
+                Vec::new()
             }
         };
 
@@ -2696,14 +2703,20 @@ impl App {
             .get_enriched_org_runners(owner)
             .await;
         match org_result {
-            Ok((mut org_runners, _)) => combined.append(&mut org_runners),
-            Err(JoltError::NotFound(_)) => {}
+            Ok((mut org_runners, _)) => {
+                self.log_info(format!("Org runners for {owner}: {}", org_runners.len()));
+                combined.append(&mut org_runners);
+            }
+            Err(JoltError::NotFound(_)) => {
+                self.log_info(format!("No org runners endpoint for {owner}"));
+            }
             Err(e) => {
                 self.log_error(format!("Failed to load org runners for {owner}: {e}"));
             }
         }
 
         let count = combined.len() as u64;
+        self.log_info(format!("Total combined runners: {count}"));
         self.runners.runners.set_loaded(combined, count);
     }
 
