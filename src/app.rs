@@ -2485,7 +2485,7 @@ impl App {
                         let client = self.github_client.as_mut().unwrap();
                         // Cache org-level runner status per owner (one API call each)
                         // None = not checked yet, Some(true/false) = has/no org runners
-                        // Errors (403/404) → None (unknown), so repos are included
+                        // Errors (403/404) → None (unknown), falls through to repo-level check
                         let mut org_runner_cache: std::collections::HashMap<String, Option<bool>> =
                             std::collections::HashMap::new();
                         let mut with_runners = Vec::new();
