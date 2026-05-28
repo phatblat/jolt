@@ -2479,19 +2479,14 @@ impl App {
                                 with_runners.push(repo);
                                 continue;
                             }
-                            // Org definitively has zero runners → check repo-level
-                            if org_status == Some(false) {
-                                match client.get_runners(owner, &repo.name, 1, 1).await {
-                                    Ok((_, 0)) => continue, // confirmed zero
-                                    Ok(_) => {
-                                        with_runners.push(repo);
-                                        continue;
-                                    }
-                                    Err(_) => {} // fall through to include
+                            // Org has no runners or unknown → check repo-level
+                            match client.get_runners(owner, &repo.name, 1, 1).await {
+                                Ok((_, 0)) => continue,
+                                Ok(_) => {
+                                    with_runners.push(repo);
                                 }
+                                Err(_) => {} // can't access runners at either level — skip
                             }
-                            // Unknown (API errors) → include to avoid hiding repos
-                            with_runners.push(repo);
                         }
                         if let Some(path) = cache::runners_repos_path() {
                             let _ = cache::write_cached(&path, &with_runners, false);
