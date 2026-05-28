@@ -2096,10 +2096,8 @@ impl App {
                 self.load_current_view().await;
             }
             Tab::Runners => {
-                if matches!(
-                    self.runners.current_view(),
-                    RunnersViewLevel::Repositories
-                ) && let Some(path) = cache::runners_repos_path()
+                if matches!(self.runners.current_view(), RunnersViewLevel::Repositories)
+                    && let Some(path) = cache::runners_repos_path()
                 {
                     let _ = cache::delete(&path);
                 }
@@ -2466,17 +2464,16 @@ impl App {
                         let mut with_runners = Vec::new();
                         for repo in repos {
                             let owner = &repo.owner.login;
-                            let org_status =
-                                if let Some(&cached) = org_runner_cache.get(owner) {
-                                    cached
-                                } else {
-                                    let status = match client.get_org_runners(owner, 1, 1).await {
-                                        Ok((_, count)) => Some(count > 0),
-                                        Err(_) => None,
-                                    };
-                                    org_runner_cache.insert(owner.clone(), status);
-                                    status
+                            let org_status = if let Some(&cached) = org_runner_cache.get(owner) {
+                                cached
+                            } else {
+                                let status = match client.get_org_runners(owner, 1, 1).await {
+                                    Ok((_, count)) => Some(count > 0),
+                                    Err(_) => None,
                                 };
+                                org_runner_cache.insert(owner.clone(), status);
+                                status
+                            };
                             // Org has runners → include repo
                             if org_status == Some(true) {
                                 with_runners.push(repo);
