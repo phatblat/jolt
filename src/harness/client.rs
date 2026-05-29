@@ -132,13 +132,13 @@ impl HarnessClient {
             .map_err(|e| HarnessError::ParseError(format!("Failed to read response: {}", e)))?;
 
         // Try to parse as error response first
-        if !status_code.is_success() {
-            if let Ok(error) = serde_json::from_str::<ApiError>(&text) {
-                return Err(HarnessError::Api {
-                    code: error.code,
-                    message: error.message,
-                });
-            }
+        if !status_code.is_success()
+            && let Ok(error) = serde_json::from_str::<ApiError>(&text)
+        {
+            return Err(HarnessError::Api {
+                code: error.code,
+                message: error.message,
+            });
         }
 
         // Parse as success response

@@ -132,7 +132,7 @@ impl PlatformTrait for GitHubPlatform {
         }
         let (owner, repo) = (parts[0], parts[1]);
 
-        let (enriched, _count) = self.client.get_enriched_runners(owner, repo, 1, 30).await?;
+        let (enriched, _count) = self.client.get_enriched_runners(owner, repo).await?;
 
         Ok(enriched
             .iter()

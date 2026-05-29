@@ -641,7 +641,7 @@ impl App {
                         .github_client
                         .as_mut()
                         .unwrap()
-                        .get_enriched_runners(&org_id, &project_id, 1, 30)
+                        .get_enriched_runners(&org_id, &project_id)
                         .await;
                     match result {
                         Ok((runners, count)) => {
@@ -2243,7 +2243,7 @@ impl App {
                 self.load_current_view(terminal).await;
             }
             Tab::Runners => {
-                if matches!(self.runners.current_view(), RunnersViewLevel::Repositories) {
+                if matches!(self.runners.current_view(), RunnersViewLevel::Projects) {
                     if let Some(path) = cache::runners_repos_path() {
                         let _ = cache::delete(&path);
                     }
@@ -2600,7 +2600,7 @@ impl App {
     }
 
     /// Load data for the runners tab current view level.
-    async fn load_runners_view<B: Backend>(&mut self, terminal: &mut Terminal<B>) {
+    async fn load_runners_view<B: Backend>(&mut self, _terminal: &mut Terminal<B>) {
         if self.github_client.is_none() {
             self.log_error("No GitHub token configured");
             return;
@@ -2691,7 +2691,7 @@ impl App {
                         .github_client
                         .as_mut()
                         .unwrap()
-                        .get_enriched_runners(&org_id, &project_id, 1, 30)
+                        .get_enriched_runners(&org_id, &project_id)
                         .await;
                     match result {
                         Ok((runners, count)) => {
@@ -2865,6 +2865,7 @@ impl App {
     /// Load the combined repo + org runners for `owner/repo` into `self.runners.runners`.
     /// Repo fetch errors are fatal; org fetch errors are logged (404 is silent — owner is
     /// likely a user account, not an org).
+    #[allow(dead_code)]
     async fn load_combined_runners<B: Backend>(
         &mut self,
         terminal: &mut Terminal<B>,
@@ -2914,16 +2915,22 @@ impl App {
 
         self.github_client = Some(client);
 
-        let count = combined.len() as u64;
+        let unified: Vec<crate::types::Runner> = combined
+            .iter()
+            .map(|e| crate::types::Runner::from_github_enriched(e, owner, repo))
+            .collect();
+        let count = unified.len() as u64;
         self.log_info(format!("Total combined runners: {count}"));
-        self.runners.runners.set_loaded(combined, count);
+        self.runners.runners.set_loaded(unified, count);
     }
 
     /// Org runner cache TTL: 1 hour (runner configuration changes rarely).
+    #[allow(dead_code)]
     const ORG_RUNNERS_TTL: Duration = Duration::from_secs(60 * 60);
 
     /// Fetch repos and filter to those with self-hosted runners.
     /// Uses a persisted per-owner org runner cache to avoid redundant API calls.
+    #[allow(dead_code)]
     async fn filter_repos_by_runners<B: Backend>(&mut self, terminal: &mut Terminal<B>) {
         let mut client = self.github_client.take().unwrap();
         self.cached_rate_limit = client.rate_limit().clone();
@@ -2935,7 +2942,7 @@ impl App {
             Ok(repos) => repos,
             Err(e) => {
                 self.github_client = Some(client);
-                self.runners.repositories.set_error(e.to_string());
+                self.runners.projects.set_error(e.to_string());
                 self.log_error(format!("Failed to load repositories: {e}"));
                 return;
             }
@@ -3001,8 +3008,12 @@ impl App {
         if let Some(path) = cache::runners_repos_path() {
             let _ = cache::write_cached(&path, &with_runners, false);
         }
-        let count = with_runners.len() as u64;
-        self.runners.repositories.set_loaded(with_runners, count);
+        let projects: Vec<crate::types::Project> = with_runners
+            .iter()
+            .map(crate::platform::github::map_repository_to_project)
+            .collect();
+        let count = projects.len() as u64;
+        self.runners.projects.set_loaded(projects, count);
     }
 
     /// Log a warning to the sync activity log.
@@ -3019,6 +3030,7 @@ impl App {
 
     /// Poll a future while animating the spinner. The future must NOT borrow
     /// `self` (extract the client first) so `self` remains free for drawing.
+    #[allow(dead_code)]
     async fn poll_with_spinner<B: Backend, F: std::future::Future>(
         &mut self,
         terminal: &mut Terminal<B>,
@@ -3044,4 +3056,5 @@ impl App {
     }
 }
 
+#[allow(dead_code)]
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
