@@ -8,5 +8,6 @@ pub mod store;
 
 pub use paths::*;
 pub use store::{
-    CachedData, DEFAULT_TTL, read_cached, read_if_valid, read_text, write_cached, write_text,
+    CachedData, DEFAULT_TTL, delete, read_cached, read_if_valid, read_text, write_cached,
+    write_text,
 };

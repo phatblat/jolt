@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::cache;
 use crate::error::JoltError;
 use crate::github::GitHubClient;
+use crate::github::types::RateLimit;
 use crate::state::{
     AnalysisSession, AnalyzeTabState, AnalyzeViewLevel, LoadingState, NavigationContext,
     NavigationStack, RunMetadata, RunnersNavStack, RunnersTabState, RunnersViewLevel, SourceTab,
@@ -168,6 +169,12 @@ pub struct App {
     pub favorite_workflows: HashSet<String>,
     /// Favorite runners.
     pub favorite_runners: HashSet<String>,
+    /// Whether a network request is in progress.
+    pub network_active: bool,
+    /// Current spinner animation frame.
+    pub spinner_frame: usize,
+    /// Cached rate limit (visible while client is temporarily extracted).
+    pub cached_rate_limit: RateLimit,
 }
 
 impl App {
@@ -233,6 +240,9 @@ impl App {
             favorite_repos: persisted.favorite_repos,
             favorite_workflows: persisted.favorite_workflows,
             favorite_runners: persisted.favorite_runners,
+            network_active: false,
+            spinner_frame: 0,
+            cached_rate_limit: RateLimit::default(),
         }
     }
 
@@ -331,13 +341,16 @@ impl App {
     }
 
     /// Main event loop.
-    pub async fn run(&mut self, terminal: &mut Terminal<impl Backend>) -> io::Result<()> {
+    pub async fn run<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> io::Result<()> {
         // Initial data load for active tab
-        self.on_tab_change().await;
+        self.on_tab_change(terminal).await;
 
         while !self.should_quit {
+            if let Some(client) = &self.github_client {
+                self.cached_rate_limit = client.rate_limit().clone();
+            }
             terminal.draw(|frame| ui::draw(frame, self))?;
-            self.handle_events().await?;
+            self.handle_events(terminal).await?;
         }
 
         // Save state for next session
@@ -347,7 +360,7 @@ impl App {
 
     /// Handle keyboard and other events.
     #[allow(clippy::collapsible_if)]
-    async fn handle_events(&mut self) -> io::Result<()> {
+    async fn handle_events<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> io::Result<()> {
         if event::poll(Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
@@ -394,7 +407,7 @@ impl App {
                                 self.workflows.branch_history_selection = 0;
                             }
                             KeyCode::Enter => {
-                                self.handle_branch_switch().await;
+                                self.handle_branch_switch(terminal).await;
                             }
                             KeyCode::Up
                                 if !self.workflows.branch_history.is_empty()
@@ -440,11 +453,11 @@ impl App {
                         KeyCode::Char('?') => self.show_help = true,
                         KeyCode::Tab => {
                             self.active_tab = self.active_tab.next();
-                            self.on_tab_change().await;
+                            self.on_tab_change(terminal).await;
                         }
                         KeyCode::BackTab => {
                             self.active_tab = self.active_tab.prev();
-                            self.on_tab_change().await;
+                            self.on_tab_change(terminal).await;
                         }
                         // Global sync toggle (Shift+S)
                         KeyCode::Char('S') => {
@@ -453,19 +466,19 @@ impl App {
                         // Direct tab selection
                         KeyCode::Char('1') => {
                             self.active_tab = Tab::Runners;
-                            self.on_tab_change().await;
+                            self.on_tab_change(terminal).await;
                         }
                         KeyCode::Char('2') => {
                             self.active_tab = Tab::Workflows;
-                            self.on_tab_change().await;
+                            self.on_tab_change(terminal).await;
                         }
                         KeyCode::Char('3') => {
                             self.active_tab = Tab::Analyze;
-                            self.on_tab_change().await;
+                            self.on_tab_change(terminal).await;
                         }
                         KeyCode::Char('4') => {
                             self.active_tab = Tab::Sync;
-                            self.on_tab_change().await;
+                            self.on_tab_change(terminal).await;
                         }
                         // Arrow keys
                         KeyCode::Up => self.handle_up(shift_held),
@@ -488,9 +501,15 @@ impl App {
                         KeyCode::Char('g') => self.handle_home(false), // Vim: go to start
                         KeyCode::Char('G') => self.handle_end(false),  // Vim: go to end
                         // Actions
-                        KeyCode::Enter => self.handle_enter().await,
-                        KeyCode::Esc => self.handle_escape().await,
-                        KeyCode::Char('r') => self.handle_refresh().await,
+                        KeyCode::Enter => {
+                            self.handle_enter(terminal).await;
+                        }
+                        KeyCode::Esc => {
+                            self.handle_escape(terminal).await;
+                        }
+                        KeyCode::Char('r') => {
+                            self.handle_refresh(terminal).await;
+                        }
                         KeyCode::Char('/') => self.handle_search_start(),
                         KeyCode::Char('o') => self.handle_open_in_browser(),
                         KeyCode::Char('f') => self.toggle_favorite(),
@@ -520,7 +539,7 @@ impl App {
                     self.runners.runners.set_loading();
                     let owner = owner.clone();
                     let repo = repo.clone();
-                    self.load_combined_runners(&owner, &repo).await;
+                    self.load_combined_runners(terminal, &owner, &repo).await;
                     // Schedule next refresh
                     self.runners.runners_next_refresh =
                         Some(std::time::Instant::now() + std::time::Duration::from_secs(60));
@@ -1289,7 +1308,7 @@ impl App {
     }
 
     /// Navigate to the source log for an analysis session.
-    async fn go_to_source(&mut self, session_id: &str) {
+    async fn go_to_source<B: Backend>(&mut self, terminal: &mut Terminal<B>, session_id: &str) {
         let session = match self.analyze.find_session(session_id) {
             Some(s) => s.clone(),
             None => return,
@@ -1299,16 +1318,20 @@ impl App {
 
         match ctx.source_tab {
             SourceTab::Workflows => {
-                self.go_to_workflows_source(&session).await;
+                self.go_to_workflows_source(terminal, &session).await;
             }
             SourceTab::Runners => {
-                self.go_to_runners_source(&session).await;
+                self.go_to_runners_source(terminal, &session).await;
             }
         }
     }
 
     /// Navigate to Workflows tab source for an analysis session.
-    async fn go_to_workflows_source(&mut self, session: &AnalysisSession) {
+    async fn go_to_workflows_source<B: Backend>(
+        &mut self,
+        terminal: &mut Terminal<B>,
+        session: &AnalysisSession,
+    ) {
         let ctx = &session.nav_context;
 
         // Build the navigation stack
@@ -1358,11 +1381,15 @@ impl App {
         // Switch tab and load logs
         self.active_tab = Tab::Workflows;
         self.analyze.exit_detail();
-        self.load_current_view().await;
+        self.load_current_view(terminal).await;
     }
 
     /// Navigate to Runners tab source for an analysis session.
-    async fn go_to_runners_source(&mut self, session: &AnalysisSession) {
+    async fn go_to_runners_source<B: Backend>(
+        &mut self,
+        terminal: &mut Terminal<B>,
+        session: &AnalysisSession,
+    ) {
         let ctx = &session.nav_context;
 
         // Reset runners state and build nav stack
@@ -1402,7 +1429,7 @@ impl App {
         // Switch tab and load logs
         self.active_tab = Tab::Runners;
         self.analyze.exit_detail();
-        self.load_current_view().await;
+        self.load_current_view(terminal).await;
     }
 
     /// Toggle favorite status for the currently selected item.
@@ -1756,10 +1783,10 @@ impl App {
     }
 
     /// Handle Enter key (drill down).
-    async fn handle_enter(&mut self) {
+    async fn handle_enter<B: Backend>(&mut self, terminal: &mut Terminal<B>) {
         match self.active_tab {
-            Tab::Workflows => self.handle_workflows_enter().await,
-            Tab::Runners => self.handle_runners_enter().await,
+            Tab::Workflows => self.handle_workflows_enter(terminal).await,
+            Tab::Runners => self.handle_runners_enter(terminal).await,
             Tab::Analyze => {
                 match &self.analyze.view {
                     AnalyzeViewLevel::List => {
@@ -1769,7 +1796,7 @@ impl App {
                     AnalyzeViewLevel::Detail { session_id } => {
                         // Go to source log from detail view
                         let session_id = session_id.clone();
-                        self.go_to_source(&session_id).await;
+                        self.go_to_source(terminal, &session_id).await;
                     }
                 }
             }
@@ -1778,7 +1805,7 @@ impl App {
     }
 
     /// Handle Enter in Workflows tab.
-    async fn handle_workflows_enter(&mut self) {
+    async fn handle_workflows_enter<B: Backend>(&mut self, terminal: &mut Terminal<B>) {
         // Get the next navigation level based on current selection
         // Note: For views with favorites, we must sort to match the displayed order
         let next_level = match self.workflows.nav.current().clone() {
@@ -1926,12 +1953,12 @@ impl App {
                 self.restore_log_state(job_id);
             }
 
-            self.load_current_view().await;
+            self.load_current_view(terminal).await;
         }
     }
 
     /// Handle Enter in Runners tab.
-    async fn handle_runners_enter(&mut self) {
+    async fn handle_runners_enter<B: Backend>(&mut self, terminal: &mut Terminal<B>) {
         // Clear auto-refresh timer when navigating away from runners list
         if !matches!(self.runners.nav.current(), RunnersViewLevel::Runners { .. }) {
             self.runners.runners_view_entered_at = None;
@@ -2055,19 +2082,19 @@ impl App {
                 self.restore_log_state(job_id);
             }
 
-            self.load_runners_view().await;
+            self.load_runners_view(terminal).await;
         }
     }
 
     /// Handle Escape key (go back).
-    async fn handle_escape(&mut self) {
+    async fn handle_escape<B: Backend>(&mut self, terminal: &mut Terminal<B>) {
         // Save log state before navigating away
         self.save_current_log_state();
 
         match self.active_tab {
             Tab::Workflows => {
                 if self.workflows.go_back() {
-                    self.load_current_view().await;
+                    self.load_current_view(terminal).await;
                 }
             }
             Tab::Runners => {
@@ -2077,7 +2104,7 @@ impl App {
                         self.runners.runners_view_entered_at = None;
                         self.runners.runners_next_refresh = None;
                     }
-                    self.load_runners_view().await;
+                    self.load_runners_view(terminal).await;
                 }
             }
             Tab::Analyze => {
@@ -2089,22 +2116,30 @@ impl App {
     }
 
     /// Handle refresh key.
-    async fn handle_refresh(&mut self) {
+    async fn handle_refresh<B: Backend>(&mut self, terminal: &mut Terminal<B>) {
         match self.active_tab {
             Tab::Workflows => {
                 self.workflows.clear_current();
-                self.load_current_view().await;
+                self.load_current_view(terminal).await;
             }
             Tab::Runners => {
+                if matches!(self.runners.current_view(), RunnersViewLevel::Repositories) {
+                    if let Some(path) = cache::runners_repos_path() {
+                        let _ = cache::delete(&path);
+                    }
+                    if let Some(path) = cache::org_runners_path() {
+                        let _ = cache::delete(&path);
+                    }
+                }
                 self.runners.clear_current();
-                self.load_runners_view().await;
+                self.load_runners_view(terminal).await;
             }
             Tab::Analyze | Tab::Sync => {}
         }
     }
 
     /// Called when switching tabs.
-    async fn on_tab_change(&mut self) {
+    async fn on_tab_change<B: Backend>(&mut self, terminal: &mut Terminal<B>) {
         // Clear runners auto-refresh timer when leaving Runners tab
         if self.active_tab != Tab::Runners {
             self.runners.runners_view_entered_at = None;
@@ -2112,8 +2147,8 @@ impl App {
         }
 
         match self.active_tab {
-            Tab::Workflows => self.load_current_view().await,
-            Tab::Runners => self.load_runners_view().await,
+            Tab::Workflows => self.load_current_view(terminal).await,
+            Tab::Runners => self.load_runners_view(terminal).await,
             Tab::Analyze | Tab::Sync => {}
         }
     }
@@ -2129,7 +2164,7 @@ impl App {
     }
 
     /// Load data for the current view level.
-    async fn load_current_view(&mut self) {
+    async fn load_current_view<B: Backend>(&mut self, _terminal: &mut Terminal<B>) {
         if self.github_client.is_none() {
             self.log_error("No GitHub token configured");
             return;
@@ -2417,7 +2452,7 @@ impl App {
     }
 
     /// Load data for the runners tab current view level.
-    async fn load_runners_view(&mut self) {
+    async fn load_runners_view<B: Backend>(&mut self, terminal: &mut Terminal<B>) {
         if self.github_client.is_none() {
             self.log_error("No GitHub token configured");
             return;
@@ -2440,27 +2475,9 @@ impl App {
                     self.runners.repositories.set_loaded(cached.data, count);
                     return;
                 }
-                // No valid cache, fetch from API
+                // No valid cache — fetch repos, then filter to those with self-hosted runners
                 self.runners.repositories.set_loading();
-                let result = self
-                    .github_client
-                    .as_mut()
-                    .unwrap()
-                    .get_user_repos(1, 30)
-                    .await;
-                match result {
-                    Ok(repos) => {
-                        if let Some(path) = cache::runners_repos_path() {
-                            let _ = cache::write_cached(&path, &repos, false);
-                        }
-                        let count = repos.len() as u64;
-                        self.runners.repositories.set_loaded(repos, count);
-                    }
-                    Err(e) => {
-                        self.runners.repositories.set_error(e.to_string());
-                        self.log_error(format!("Failed to load repositories: {e}"));
-                    }
-                }
+                self.filter_repos_by_runners(terminal).await;
             }
             RunnersViewLevel::Runners {
                 ref owner,
@@ -2478,7 +2495,7 @@ impl App {
                     self.runners.runners.set_loading();
                     let owner = owner.clone();
                     let repo = repo.clone();
-                    self.load_combined_runners(&owner, &repo).await;
+                    self.load_combined_runners(terminal, &owner, &repo).await;
                 }
             }
             RunnersViewLevel::Runs {
@@ -2584,7 +2601,7 @@ impl App {
     }
 
     /// Handle branch switch from modal.
-    async fn handle_branch_switch(&mut self) {
+    async fn handle_branch_switch<B: Backend>(&mut self, terminal: &mut Terminal<B>) {
         // Determine branch to switch to
         let branch = if self.workflows.branch_input.is_empty() {
             // Use selection from history
@@ -2619,7 +2636,7 @@ impl App {
         self.workflows.runs = crate::state::workflows::SelectableList::new();
 
         // Reload workflows for the new branch
-        self.load_current_view().await;
+        self.load_current_view(terminal).await;
     }
 
     /// Log an error to the sync activity log.
@@ -2630,38 +2647,146 @@ impl App {
     /// Load the combined repo + org runners for `owner/repo` into `self.runners.runners`.
     /// Repo fetch errors are fatal; org fetch errors are logged (404 is silent — owner is
     /// likely a user account, not an org).
-    async fn load_combined_runners(&mut self, owner: &str, repo: &str) {
+    async fn load_combined_runners<B: Backend>(
+        &mut self,
+        terminal: &mut Terminal<B>,
+        owner: &str,
+        repo: &str,
+    ) {
+        self.log_info(format!("Loading runners for {owner}/{repo}"));
+
+        let mut client = self.github_client.take().unwrap();
+        self.cached_rate_limit = client.rate_limit().clone();
+
         let repo_result = self
-            .github_client
-            .as_mut()
-            .unwrap()
-            .get_enriched_runners(owner, repo)
+            .poll_with_spinner(terminal, client.get_enriched_runners(owner, repo))
             .await;
+        self.cached_rate_limit = client.rate_limit().clone();
         let mut combined = match repo_result {
-            Ok((runners, _)) => runners,
+            Ok((runners, _)) => {
+                self.log_info(format!("Repo runners: {}", runners.len()));
+                runners
+            }
+            Err(JoltError::NotFound(_)) => {
+                self.log_info(format!("No repo-level runners endpoint for {owner}/{repo}"));
+                Vec::new()
+            }
             Err(e) => {
-                self.runners.runners.set_error(e.to_string());
-                self.log_error(format!("Failed to load runners: {e}"));
-                return;
+                self.log_error(format!("Failed to load repo runners: {e}"));
+                Vec::new()
             }
         };
 
         let org_result = self
-            .github_client
-            .as_mut()
-            .unwrap()
-            .get_enriched_org_runners(owner)
+            .poll_with_spinner(terminal, client.get_enriched_org_runners(owner))
             .await;
+        self.cached_rate_limit = client.rate_limit().clone();
         match org_result {
-            Ok((mut org_runners, _)) => combined.append(&mut org_runners),
-            Err(JoltError::NotFound(_)) => {}
+            Ok((mut org_runners, _)) => {
+                self.log_info(format!("Org runners for {owner}: {}", org_runners.len()));
+                combined.append(&mut org_runners);
+            }
+            Err(JoltError::NotFound(_)) => {
+                self.log_info(format!("No org runners endpoint for {owner}"));
+            }
             Err(e) => {
                 self.log_error(format!("Failed to load org runners for {owner}: {e}"));
             }
         }
 
+        self.github_client = Some(client);
+
         let count = combined.len() as u64;
+        self.log_info(format!("Total combined runners: {count}"));
         self.runners.runners.set_loaded(combined, count);
+    }
+
+    /// Org runner cache TTL: 1 hour (runner configuration changes rarely).
+    const ORG_RUNNERS_TTL: Duration = Duration::from_secs(60 * 60);
+
+    /// Fetch repos and filter to those with self-hosted runners.
+    /// Uses a persisted per-owner org runner cache to avoid redundant API calls.
+    async fn filter_repos_by_runners<B: Backend>(&mut self, terminal: &mut Terminal<B>) {
+        let mut client = self.github_client.take().unwrap();
+        self.cached_rate_limit = client.rate_limit().clone();
+
+        let repos = match self
+            .poll_with_spinner(terminal, client.get_user_repos(1, 100))
+            .await
+        {
+            Ok(repos) => repos,
+            Err(e) => {
+                self.github_client = Some(client);
+                self.runners.repositories.set_error(e.to_string());
+                self.log_error(format!("Failed to load repositories: {e}"));
+                return;
+            }
+        };
+        self.cached_rate_limit = client.rate_limit().clone();
+
+        // Load persisted org runner presence cache
+        let mut org_runner_cache: std::collections::HashMap<String, Option<bool>> =
+            cache::org_runners_path()
+                .and_then(|path| cache::read_cached(&path).ok().flatten())
+                .filter(
+                    |c: &cache::CachedData<std::collections::HashMap<String, Option<bool>>>| {
+                        c.is_valid(Self::ORG_RUNNERS_TTL)
+                    },
+                )
+                .map(|c| c.data)
+                .unwrap_or_default();
+
+        let mut with_runners = Vec::new();
+        let mut cache_updated = false;
+        for repo in repos {
+            let owner = &repo.owner.login;
+            let org_status = if let Some(&cached) = org_runner_cache.get(owner) {
+                cached
+            } else {
+                let status = match self
+                    .poll_with_spinner(terminal, client.get_org_runners(owner, 1, 1))
+                    .await
+                {
+                    Ok((_, count)) => Some(count > 0),
+                    Err(_) => None,
+                };
+                self.cached_rate_limit = client.rate_limit().clone();
+                org_runner_cache.insert(owner.clone(), status);
+                cache_updated = true;
+                status
+            };
+            // Org has runners → include repo
+            if org_status == Some(true) {
+                with_runners.push(repo);
+                continue;
+            }
+            // Org has no runners or unknown → check repo-level
+            match self
+                .poll_with_spinner(terminal, client.get_runners(owner, &repo.name, 1, 1))
+                .await
+            {
+                Ok((_, 0)) => continue,
+                Ok(_) => {
+                    with_runners.push(repo);
+                }
+                Err(_) => {} // can't access runners at either level — skip
+            }
+            self.cached_rate_limit = client.rate_limit().clone();
+        }
+
+        self.github_client = Some(client);
+
+        // Persist org runner cache for future loads
+        if cache_updated {
+            if let Some(path) = cache::org_runners_path() {
+                let _ = cache::write_cached(&path, &org_runner_cache, false);
+            }
+        }
+        if let Some(path) = cache::runners_repos_path() {
+            let _ = cache::write_cached(&path, &with_runners, false);
+        }
+        let count = with_runners.len() as u64;
+        self.runners.repositories.set_loaded(with_runners, count);
     }
 
     /// Log a warning to the sync activity log.
@@ -2675,4 +2800,32 @@ impl App {
     fn log_info(&mut self, message: impl Into<String>) {
         self.sync.log_info(message);
     }
+
+    /// Poll a future while animating the spinner. The future must NOT borrow
+    /// `self` (extract the client first) so `self` remains free for drawing.
+    async fn poll_with_spinner<B: Backend, F: std::future::Future>(
+        &mut self,
+        terminal: &mut Terminal<B>,
+        fut: F,
+    ) -> F::Output {
+        self.network_active = true;
+        let mut fut = std::pin::pin!(fut);
+        let mut interval = tokio::time::interval(Duration::from_millis(80));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            tokio::select! {
+                biased;
+                result = &mut fut => {
+                    self.network_active = false;
+                    return result;
+                }
+                _ = interval.tick() => {
+                    self.spinner_frame = (self.spinner_frame + 1) % SPINNER_FRAMES.len();
+                    let _ = terminal.draw(|frame| ui::draw(frame, self));
+                }
+            }
+        }
+    }
 }
+
+const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];

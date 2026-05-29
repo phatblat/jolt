@@ -13,19 +13,27 @@ See `docs/ratatui-plan.md` for the full implementation plan.
 ```
 src/
 ├── main.rs              # Entry point, terminal setup/cleanup
-├── app.rs               # App state, event loop, tab management
+├── app.rs               # App state, event loop, tab management, persisted state
+├── error.rs             # Error types (JoltError enum)
 ├── ui/
 │   ├── mod.rs           # Main draw function, layout
 │   ├── tabs.rs          # Tab bar rendering with badge support
-│   ├── breadcrumb.rs    # Breadcrumb navigation (planned)
-│   ├── list.rs          # Generic list widget (planned)
-│   ├── log_viewer.rs    # Log display with search (planned)
-│   ├── console.rs       # Console message list (planned)
-│   └── help.rs          # Help overlay (planned)
-├── github/              # GitHub API client (planned)
-├── cache/               # Local filesystem cache (planned)
-├── state/               # Navigation and tab state (planned)
-└── error.rs             # Error types (planned)
+│   ├── breadcrumb.rs    # Breadcrumb navigation
+│   ├── list.rs          # Generic list widget
+│   └── modal.rs         # Modal overlay widget
+├── github/
+│   ├── client.rs        # Authenticated HTTP client with rate limiting
+│   ├── endpoints.rs     # API endpoint methods (runners, workflows, runs, jobs)
+│   └── types.rs         # Data models (Owner, Workflow, Run, Job, Runner, etc.)
+├── cache/
+│   ├── paths.rs         # XDG-compliant cache path helpers
+│   └── store.rs         # Serialized cache with TTL and invalidation
+└── state/
+    ├── navigation.rs    # Breadcrumb stack, ViewLevel enum
+    ├── runners.rs       # Runner fetching and state (org + repo level)
+    ├── workflows.rs     # Workflow/run/job fetching and state
+    ├── sync.rs          # Background data sync
+    └── analyze.rs       # Runner analysis and enrichment
 ```
 
 ## Common Development Tasks
@@ -82,12 +90,15 @@ just test
 - Local cache at `~/.cache/jolt/` with immutable log storage
 - Fixed color palette for status indicators (see plan)
 
-## Current Status
+## Current Status (v1.0.0)
 
-Phase 1 (Scaffold) complete:
-- [x] Basic ratatui app loop
-- [x] Tab bar with Runners/Workflows/Console
-- [x] Placeholder content per tab
-- [x] Quit on `q`
-
-Next: Phase 2 (GitHub Client)
+- [x] Phase 1: Scaffold — ratatui app loop, tab bar, quit on `q`
+- [x] Phase 2: GitHub Client — authenticated API client with rate limiting, paginated fetches
+- [x] Phase 3: Data & State — cache layer with TTL, navigation stack, runner/workflow state
+- [x] Phase 4: UI — breadcrumb nav, generic list widget, modal overlay, runner analysis
+- [x] Runners tab — org + repo-level runners with enrichment
+- [x] Workflows tab — workflow/run/job browsing
+- [x] Console tab — error/message display
+- [x] Persisted state across sessions
+- [x] `--version` / `-V` flag
+- [x] Release binary via `just install`

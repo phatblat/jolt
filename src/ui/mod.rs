@@ -1101,9 +1101,13 @@ fn draw_status_bar(frame: &mut Frame, app: &App, area: Rect) {
         ]
     };
 
-    // Add rate limit info on the right if available
-    if let Some(client) = &app.github_client {
-        let rate = client.rate_limit();
+    // Add rate limit info — use client if available, fall back to cached
+    let rate = app
+        .github_client
+        .as_ref()
+        .map(|c| c.rate_limit().clone())
+        .unwrap_or_else(|| app.cached_rate_limit.clone());
+    if rate.limit > 0 {
         let rate_color = if rate.remaining < 100 {
             Color::Red
         } else if rate.remaining < 500 {
@@ -1114,6 +1118,14 @@ fn draw_status_bar(frame: &mut Frame, app: &App, area: Rect) {
         hints.push(Span::styled(
             format!("  API: {}/{}", rate.remaining, rate.limit),
             Style::default().fg(rate_color),
+        ));
+    }
+    if app.network_active {
+        const SPINNER: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+        let frame = app.spinner_frame % SPINNER.len();
+        hints.push(Span::styled(
+            format!(" {}", SPINNER[frame]),
+            Style::default().fg(Color::Cyan),
         ));
     }
 
