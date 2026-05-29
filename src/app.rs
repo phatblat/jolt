@@ -2777,10 +2777,8 @@ impl App {
         self.github_client = Some(client);
 
         // Persist org runner cache for future loads
-        if cache_updated {
-            if let Some(path) = cache::org_runners_path() {
-                let _ = cache::write_cached(&path, &org_runner_cache, false);
-            }
+        if cache_updated && let Some(path) = cache::org_runners_path() {
+            let _ = cache::write_cached(&path, &org_runner_cache, false);
         }
         if let Some(path) = cache::runners_repos_path() {
             let _ = cache::write_cached(&path, &with_runners, false);
