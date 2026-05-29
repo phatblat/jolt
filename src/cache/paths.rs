@@ -20,6 +20,11 @@ pub fn runners_repos_path() -> Option<PathBuf> {
     cache_dir().map(|dir| dir.join("runners_repos.json"))
 }
 
+/// Path to the cached org runner presence map.
+pub fn org_runners_path() -> Option<PathBuf> {
+    cache_dir().map(|dir| dir.join("org_runners.json"))
+}
+
 /// Path to the cached owners list.
 pub fn owners_list_path() -> Option<PathBuf> {
     cache_dir().map(|dir| dir.join("owners.json"))

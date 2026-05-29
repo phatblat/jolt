@@ -2123,10 +2123,13 @@ impl App {
                 self.load_current_view(terminal).await;
             }
             Tab::Runners => {
-                if matches!(self.runners.current_view(), RunnersViewLevel::Repositories)
-                    && let Some(path) = cache::runners_repos_path()
-                {
-                    let _ = cache::delete(&path);
+                if matches!(self.runners.current_view(), RunnersViewLevel::Repositories) {
+                    if let Some(path) = cache::runners_repos_path() {
+                        let _ = cache::delete(&path);
+                    }
+                    if let Some(path) = cache::org_runners_path() {
+                        let _ = cache::delete(&path);
+                    }
                 }
                 self.runners.clear_current();
                 self.load_runners_view(terminal).await;
@@ -2474,58 +2477,7 @@ impl App {
                 }
                 // No valid cache — fetch repos, then filter to those with self-hosted runners
                 self.runners.repositories.set_loading();
-                let result = self
-                    .github_client
-                    .as_mut()
-                    .unwrap()
-                    .get_user_repos(1, 100)
-                    .await;
-                match result {
-                    Ok(repos) => {
-                        let client = self.github_client.as_mut().unwrap();
-                        // Cache org-level runner status per owner (one API call each)
-                        // None = not checked yet, Some(true/false) = has/no org runners
-                        // Errors (403/404) → None (unknown), falls through to repo-level check
-                        let mut org_runner_cache: std::collections::HashMap<String, Option<bool>> =
-                            std::collections::HashMap::new();
-                        let mut with_runners = Vec::new();
-                        for repo in repos {
-                            let owner = &repo.owner.login;
-                            let org_status = if let Some(&cached) = org_runner_cache.get(owner) {
-                                cached
-                            } else {
-                                let status = match client.get_org_runners(owner, 1, 1).await {
-                                    Ok((_, count)) => Some(count > 0),
-                                    Err(_) => None,
-                                };
-                                org_runner_cache.insert(owner.clone(), status);
-                                status
-                            };
-                            // Org has runners → include repo
-                            if org_status == Some(true) {
-                                with_runners.push(repo);
-                                continue;
-                            }
-                            // Org has no runners or unknown → check repo-level
-                            match client.get_runners(owner, &repo.name, 1, 1).await {
-                                Ok((_, 0)) => continue,
-                                Ok(_) => {
-                                    with_runners.push(repo);
-                                }
-                                Err(_) => {} // can't access runners at either level — skip
-                            }
-                        }
-                        if let Some(path) = cache::runners_repos_path() {
-                            let _ = cache::write_cached(&path, &with_runners, false);
-                        }
-                        let count = with_runners.len() as u64;
-                        self.runners.repositories.set_loaded(with_runners, count);
-                    }
-                    Err(e) => {
-                        self.runners.repositories.set_error(e.to_string());
-                        self.log_error(format!("Failed to load repositories: {e}"));
-                    }
-                }
+                self.filter_repos_by_runners(terminal).await;
             }
             RunnersViewLevel::Runners {
                 ref owner,
@@ -2747,6 +2699,94 @@ impl App {
         let count = combined.len() as u64;
         self.log_info(format!("Total combined runners: {count}"));
         self.runners.runners.set_loaded(combined, count);
+    }
+
+    /// Org runner cache TTL: 1 hour (runner configuration changes rarely).
+    const ORG_RUNNERS_TTL: Duration = Duration::from_secs(60 * 60);
+
+    /// Fetch repos and filter to those with self-hosted runners.
+    /// Uses a persisted per-owner org runner cache to avoid redundant API calls.
+    async fn filter_repos_by_runners<B: Backend>(&mut self, terminal: &mut Terminal<B>) {
+        let mut client = self.github_client.take().unwrap();
+        self.cached_rate_limit = client.rate_limit().clone();
+
+        let repos = match self
+            .poll_with_spinner(terminal, client.get_user_repos(1, 100))
+            .await
+        {
+            Ok(repos) => repos,
+            Err(e) => {
+                self.github_client = Some(client);
+                self.runners.repositories.set_error(e.to_string());
+                self.log_error(format!("Failed to load repositories: {e}"));
+                return;
+            }
+        };
+        self.cached_rate_limit = client.rate_limit().clone();
+
+        // Load persisted org runner presence cache
+        let mut org_runner_cache: std::collections::HashMap<String, Option<bool>> =
+            cache::org_runners_path()
+                .and_then(|path| cache::read_cached(&path).ok().flatten())
+                .filter(
+                    |c: &cache::CachedData<std::collections::HashMap<String, Option<bool>>>| {
+                        c.is_valid(Self::ORG_RUNNERS_TTL)
+                    },
+                )
+                .map(|c| c.data)
+                .unwrap_or_default();
+
+        let mut with_runners = Vec::new();
+        let mut cache_updated = false;
+        for repo in repos {
+            let owner = &repo.owner.login;
+            let org_status = if let Some(&cached) = org_runner_cache.get(owner) {
+                cached
+            } else {
+                let status = match self
+                    .poll_with_spinner(terminal, client.get_org_runners(owner, 1, 1))
+                    .await
+                {
+                    Ok((_, count)) => Some(count > 0),
+                    Err(_) => None,
+                };
+                self.cached_rate_limit = client.rate_limit().clone();
+                org_runner_cache.insert(owner.clone(), status);
+                cache_updated = true;
+                status
+            };
+            // Org has runners → include repo
+            if org_status == Some(true) {
+                with_runners.push(repo);
+                continue;
+            }
+            // Org has no runners or unknown → check repo-level
+            match self
+                .poll_with_spinner(terminal, client.get_runners(owner, &repo.name, 1, 1))
+                .await
+            {
+                Ok((_, 0)) => continue,
+                Ok(_) => {
+                    with_runners.push(repo);
+                }
+                Err(_) => {} // can't access runners at either level — skip
+            }
+            self.cached_rate_limit = client.rate_limit().clone();
+        }
+
+        self.github_client = Some(client);
+
+        // Persist org runner cache for future loads
+        if cache_updated {
+            if let Some(path) = cache::org_runners_path() {
+                let _ = cache::write_cached(&path, &org_runner_cache, false);
+            }
+        }
+        if let Some(path) = cache::runners_repos_path() {
+            let _ = cache::write_cached(&path, &with_runners, false);
+        }
+        let count = with_runners.len() as u64;
+        self.runners.repositories.set_loaded(with_runners, count);
     }
 
     /// Log a warning to the sync activity log.
